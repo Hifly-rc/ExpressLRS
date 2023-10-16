@@ -1367,7 +1367,6 @@ void loop()
       crsf.sendTelemetryToTX(CRSFinBuffer);
       TelemetryReceiver.Unlock();
   }
-
   // only send msp data when binding is not active
   static bool mspTransferActive = false;
   if (InBindingMode)

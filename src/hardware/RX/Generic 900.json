@@ -8,6 +8,8 @@
     "radio_nss": 15,
     "radio_rst": 2,
     "radio_sck": 14,
+    "power_txen": 9,
+    "power_rxen": 10,
     "power_min": 0,
     "power_high": 2,
     "power_max": 2,

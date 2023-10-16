@@ -22,14 +22,14 @@
 #-DRegulatory_Domain_IN_866
 #-DRegulatory_Domain_AU_433
 #-DRegulatory_Domain_EU_433
-#-DRegulatory_Domain_FCC_915
+-DRegulatory_Domain_FCC_915
 #-DRegulatory_Domain_ISM_2400
 #-DRegulatory_Domain_EU_CE_2400
 
 ### PERFORMANCE OPTIONS: ###
 
 #unlocks >250mw output power for R9M and Happy Model ES915TX (Fan mod suggested: https://github.com/AlessandroAU/ExpressLRS/wiki/R9M-Fan-Mod-Cover)
-#-DUNLOCK_HIGHER_POWER
+-DUNLOCK_HIGHER_POWER
 
 -DLOCK_ON_FIRST_CONNECTION
 
@@ -71,11 +71,11 @@
 # Silence the buzzer
 #-DDISABLE_ALL_BEEPS
 # Disables the startup tune and crsf connect/disconnct do beep-boop
-#-DDISABLE_STARTUP_BEEP
+-DDISABLE_STARTUP_BEEP
 # Startup is beep-boop, and crsf connect/disconnct do similar
-#-DJUST_BEEP_ONCE
+-DJUST_BEEP_ONCE
 # Startup plays you own custom tune and crsf connect/disconnct do beep-boop
-#-DMY_STARTUP_MELODY="B5 16 P16 B5 16 P16 B5 16 P16 B5 2 G5 2 A5 2 B5 8 P4 A5 8 B5 1|140|-3"
+-DMY_STARTUP_MELODY="B5 16 P16 B5 16 P16 B5 16 P16 B5 2 G5 2 A5 2 B5 8 P4 A5 8 B5 1|140|-3"
 
 #If commented out the LED is RGB otherwise GRB
 #-DWS2812_IS_GRB
@@ -83,7 +83,7 @@
 ### Debugging options ###
 
 # Turn on debug messages, if disabled then all debugging options (starting with DEBUG_) are disabled
-#-DDEBUG_LOG
+-DDEBUG_LOG
 # Use DEBUG_LOG_VERBOSE instead (or both) to see verbose debug logging (spammy stuff)
 #-DDEBUG_LOG_VERBOSE
 
