@@ -1,5 +1,5 @@
 #ifndef DEVICE_NAME
-#define DEVICE_NAME "Hifly DIY SE28TX"
+#define DEVICE_NAME "Hifly SE28TX1.2"
 #endif
 
 //#define USE_TX_BACKPACK

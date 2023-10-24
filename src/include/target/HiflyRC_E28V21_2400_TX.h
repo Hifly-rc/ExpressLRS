@@ -1,5 +1,5 @@
 #ifndef DEVICE_NAME
-#define DEVICE_NAME "Hifly SE28TX"
+#define DEVICE_NAME "Hifly SE28TX2.1"
 #endif
 
 // #define USE_TX_BACKPACK
@@ -21,7 +21,7 @@
 
 #ifdef USE_DIVERSITY
 #undef DEVICE_NAME
-#define DEVICE_NAME "Hifly DE28TX"
+#define DEVICE_NAME "Hifly DE28TX2.1"
 #define GPIO_PIN_RST_2 PB3
 #define GPIO_PIN_BUSY_2 PA12
 #define GPIO_PIN_DIO1_2 PA11
