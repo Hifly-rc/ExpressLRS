@@ -3,12 +3,14 @@
 class SerialSBUS : public SerialIO {
 public:
     explicit SerialSBUS(Stream &out, Stream &in) : SerialIO(&out, &in) {}
+
     virtual ~SerialSBUS() {}
 
-    void queueLinkStatisticsPacket() override {}
-    void queueMSPFrameTransmission(uint8_t* data) override {}
-    uint32_t sendRCFrame(bool frameAvailable, uint32_t *channelData) override;
+    void setLinkQualityStats(uint16_t lq, uint16_t rssi) override;
+    uint32_t sendRCFrameToFC(bool frameAvailable, uint32_t *channelData) override;
+    void sendMSPFrameToFC(uint8_t* data) override;
+    void sendLinkStatisticsToFC() override;
 
 private:
-    void processBytes(uint8_t *bytes, uint16_t size) override {};
+    void processByte(uint8_t byte) override {};
 };

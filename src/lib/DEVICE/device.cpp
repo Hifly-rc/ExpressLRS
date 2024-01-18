@@ -47,7 +47,7 @@ void devicesRegister(device_affinity_t *devices, uint8_t count)
         taskSemaphore = xSemaphoreCreateBinary();
         completeSemaphore = xSemaphoreCreateBinary();
         disableCore0WDT();
-        xTaskCreatePinnedToCore(deviceTask, "deviceTask", 32768, NULL, 0, &xDeviceTask, 0);
+        xTaskCreatePinnedToCore(deviceTask, "deviceTask", 3000, NULL, 0, &xDeviceTask, 0);
     #endif
 }
 
@@ -113,7 +113,7 @@ void devicesTriggerEvent()
     #endif
 }
 
-static int _devicesUpdate(unsigned long now)
+int devicesUpdate(unsigned long now)
 {
     int32_t core = CURRENT_CORE;
 
@@ -156,11 +156,6 @@ static int _devicesUpdate(unsigned long now)
     return smallest_delay;
 }
 
-void devicesUpdate(unsigned long now)
-{
-    _devicesUpdate(now);
-}
-
 #if defined(PLATFORM_ESP32)
 static void deviceTask(void *pvArgs)
 {
@@ -172,7 +167,7 @@ static void deviceTask(void *pvArgs)
     xSemaphoreGive(completeSemaphore);
     for (;;)
     {
-        int delay = _devicesUpdate(millis());
+        int delay = devicesUpdate(millis());
         // sleep the core until the desired time or it's awakened by an event
         xSemaphoreTake(taskSemaphore, delay == DURATION_NEVER ? portMAX_DELAY : pdMS_TO_TICKS(delay));
     }

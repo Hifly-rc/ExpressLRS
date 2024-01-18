@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 class Button
 {
 private:
@@ -24,8 +26,8 @@ private:
     uint8_t _pressCount; // number of short presses before timeout
 public:
     // Callbacks
-    void (*OnShortPress)();
-    void (*OnLongPress)();
+    std::function<void ()>OnShortPress;
+    std::function<void ()>OnLongPress;
     // Properties
     uint8_t getCount() const { return _pressCount; }
     uint8_t getLongCount() const { return _longCount; }

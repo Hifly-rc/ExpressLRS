@@ -4,8 +4,9 @@
 
 // TODO: MSP_PORT_INBUF_SIZE should be changed to
 // dynamically allocate array length based on the payload size
-// Hardcoding payload size to 64 bytes for now, to match CRSF TLM
-#define MSP_PORT_INBUF_SIZE 64
+// Hardcoding payload size to 32 bytes for now, to cover a version
+// number from the backpack
+#define MSP_PORT_INBUF_SIZE 32
 
 #define CHECK_PACKET_PARSING() \
   if (packet->readError) {\

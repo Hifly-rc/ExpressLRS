@@ -5,14 +5,18 @@
 class SerialNOOP : public SerialIO {
 public:
     explicit SerialNOOP() : SerialIO(nullptr, nullptr) {}
+
     virtual ~SerialNOOP() {}
 
-    void queueLinkStatisticsPacket() override {}
-    void queueMSPFrameTransmission(uint8_t* data) override {}
-    uint32_t sendRCFrame(bool frameAvailable, uint32_t *channelData) override { return  DURATION_NEVER; }
+    void setLinkQualityStats(uint16_t lq, uint16_t rssi) override {}
+    void sendLinkStatisticsToFC() override {}
+    void sendMSPFrameToFC(uint8_t* data) override {}
 
-    void processSerialInput() override {}
+    uint32_t sendRCFrameToFC(bool frameAvailable, uint32_t *channelData) override { return  10; }
+
+    void handleUARTin() {}
+    void handleUARTout() { _fifo.flush(); }
 
 private:
-    void processBytes(uint8_t *bytes, uint16_t size) override {}
+    void processByte(uint8_t byte) override {}
 };

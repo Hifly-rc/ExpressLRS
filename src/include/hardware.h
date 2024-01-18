@@ -18,7 +18,6 @@ typedef enum {
     HARDWARE_radio_nss,
     HARDWARE_radio_nss_2,
     HARDWARE_radio_rst,
-    HARDWARE_radio_rst_2,
     HARDWARE_radio_sck,
     HARDWARE_radio_dcdc,
     HARDWARE_radio_rfo_hf,
@@ -47,7 +46,6 @@ typedef enum {
 
     HARDWARE_power_control,
     HARDWARE_power_values,
-    HARDWARE_power_values2,
 
     // Input
     HARDWARE_joystick,
@@ -71,7 +69,7 @@ typedef enum {
     HARDWARE_led_green_red,
     HARDWARE_led_red,
     HARDWARE_led_red_invert,
-    HARDWARE_led_red_green,
+    HARDWARE_led_reg_green,
     HARDWARE_led_rgb,
     // GPIO_PIN_LED_WS2812_FAST // stm32
     HARDWARE_led_rgb_isgrb,

@@ -40,12 +40,12 @@ static int timeout()
     // only send frames if we have a model match
     if (connectionHasModelMatch)
     {
-        duration = serialIO->sendRCFrame(frameAvailable, ChannelData);
+        duration = serialIO->sendRCFrameToFC(frameAvailable, ChannelData);
     }
     frameAvailable = false;
     // still get telemetry and send link stats if theres no model match
-    serialIO->processSerialInput();
-    serialIO->sendQueuedData(serialIO->getMaxSerialWriteSize());
+    serialIO->handleUARTout();
+    serialIO->handleUARTin();
     return duration;
 }
 

@@ -3,7 +3,7 @@
 #include "SX127xHal.h"
 #include "SX127xRegs.h"
 #include "logging.h"
-#include <SPIEx.h>
+#include <SPI.h>
 
 SX127xHal *SX127xHal::instance = NULL;
 
@@ -19,7 +19,7 @@ void SX127xHal::end()
     {
         detachInterrupt(GPIO_PIN_DIO0_2);
     }
-    SPIEx.end();
+    SPI.end();
     IsrCallback_1 = nullptr; // remove callbacks
     IsrCallback_2 = nullptr; // remove callbacks
 }
@@ -36,35 +36,37 @@ void SX127xHal::init()
 
     pinMode(GPIO_PIN_NSS, OUTPUT);
     digitalWrite(GPIO_PIN_NSS, HIGH);
-
-#ifdef PLATFORM_ESP32
-    SPIEx.begin(GPIO_PIN_SCK, GPIO_PIN_MISO, GPIO_PIN_MOSI, GPIO_PIN_NSS); // sck, miso, mosi, ss (ss can be any GPIO)
-    gpio_pullup_en((gpio_num_t)GPIO_PIN_MISO);
-    SPIEx.setFrequency(10000000);
-    SPIEx.setHwCs(true);
     if (GPIO_PIN_NSS_2 != UNDEF_PIN)
     {
         pinMode(GPIO_PIN_NSS_2, OUTPUT);
         digitalWrite(GPIO_PIN_NSS_2, HIGH);
-        spiAttachSS(SPIEx.bus(), 1, GPIO_PIN_NSS_2);
     }
-    spiEnableSSPins(SPIEx.bus(), SX12XX_Radio_All);
+
+#ifdef PLATFORM_ESP32
+    SPI.begin(GPIO_PIN_SCK, GPIO_PIN_MISO, GPIO_PIN_MOSI, GPIO_PIN_NSS); // sck, miso, mosi, ss (ss can be any GPIO)
+    gpio_pullup_en((gpio_num_t)GPIO_PIN_MISO);
+    SPI.setFrequency(10000000);
+    SPI.setHwCs(true);
+    if (GPIO_PIN_NSS_2 != UNDEF_PIN)
+    {
+        spiAttachSS(SPI.bus(), 1, GPIO_PIN_NSS_2);
+    }
+    spiEnableSSPins(SPI.bus(), 0xFF);
 #elif defined(PLATFORM_ESP8266)
     DBGLN("PLATFORM_ESP8266");
-    SPIEx.begin();
-    SPIEx.setHwCs(true);
-    SPIEx.setBitOrder(MSBFIRST);
-    SPIEx.setDataMode(SPI_MODE0);
-    SPIEx.setFrequency(10000000);
+    SPI.begin();
+    SPI.setBitOrder(MSBFIRST);
+    SPI.setDataMode(SPI_MODE0);
+    SPI.setFrequency(10000000);
 #elif defined(PLATFORM_STM32)
     DBGLN("Config SPI");
-    SPIEx.setBitOrder(MSBFIRST);
-    SPIEx.setDataMode(SPI_MODE0);
-    SPIEx.setMOSI(GPIO_PIN_MOSI);
-    SPIEx.setMISO(GPIO_PIN_MISO);
-    SPIEx.setSCLK(GPIO_PIN_SCK);
-    SPIEx.begin();
-    SPIEx.setClockDivider(SPI_CLOCK_DIV4); // 72 / 8 = 9 MHz
+    SPI.setMOSI(GPIO_PIN_MOSI);
+    SPI.setMISO(GPIO_PIN_MISO);
+    SPI.setSCLK(GPIO_PIN_SCK);
+    SPI.setBitOrder(MSBFIRST);
+    SPI.setDataMode(SPI_MODE0);
+    SPI.begin();
+    SPI.setClockDivider(SPI_CLOCK_DIV4); // 72 / 8 = 9 MHz
 #endif
 
     attachInterrupt(digitalPinToInterrupt(GPIO_PIN_DIO0), this->dioISR_1, RISING);
@@ -72,6 +74,19 @@ void SX127xHal::init()
     {
         attachInterrupt(digitalPinToInterrupt(GPIO_PIN_DIO0_2), this->dioISR_2, RISING);
     }
+}
+
+void ICACHE_RAM_ATTR SX127xHal::setNss(uint8_t radioNumber, bool state)
+{
+#if defined(PLATFORM_ESP32)
+    spiDisableSSPins(SPI.bus(), ~radioNumber);
+    spiEnableSSPins(SPI.bus(), radioNumber);
+#else
+    if (radioNumber & SX12XX_Radio_1)
+        digitalWrite(GPIO_PIN_NSS, state);
+    if (GPIO_PIN_NSS_2 != UNDEF_PIN && radioNumber & SX12XX_Radio_2)
+        digitalWrite(GPIO_PIN_NSS_2, state);
+#endif
 }
 
 void SX127xHal::reset(void)
@@ -106,10 +121,12 @@ uint8_t ICACHE_RAM_ATTR SX127xHal::readRegister(uint8_t reg, SX12XX_Radio_Number
 
 void ICACHE_RAM_ATTR SX127xHal::readRegister(uint8_t reg, uint8_t *data, uint8_t numBytes, SX12XX_Radio_Number_t radioNumber)
 {
-    WORD_ALIGNED_ATTR uint8_t buf[WORD_PADDED(numBytes + 1)];
+    WORD_ALIGNED_ATTR uint8_t buf[numBytes + 1];
     buf[0] = reg | SPI_READ;
 
-    SPIEx.read(radioNumber, buf, numBytes + 1);
+    setNss(radioNumber, LOW);
+    SPI.transfer(buf, numBytes + 1);
+    setNss(radioNumber, HIGH);
 
     memcpy(data, buf + 1, numBytes);
 }
@@ -122,7 +139,7 @@ void ICACHE_RAM_ATTR SX127xHal::writeRegisterBits(uint8_t reg, uint8_t value, ui
         uint8_t newValue = (currentValue & ~mask) | (value & mask);
         writeRegister(reg, newValue, SX12XX_Radio_1);
     }
-
+    
     if (GPIO_PIN_NSS_2 != UNDEF_PIN && radioNumber & SX12XX_Radio_2)
     {
         uint8_t currentValue = readRegister(reg, SX12XX_Radio_2);
@@ -138,11 +155,13 @@ void ICACHE_RAM_ATTR SX127xHal::writeRegister(uint8_t reg, uint8_t data, SX12XX_
 
 void ICACHE_RAM_ATTR SX127xHal::writeRegister(uint8_t reg, uint8_t *data, uint8_t numBytes, SX12XX_Radio_Number_t radioNumber)
 {
-    WORD_ALIGNED_ATTR uint8_t buf[WORD_PADDED(numBytes + 1)];
+    WORD_ALIGNED_ATTR uint8_t buf[numBytes + 1];
     buf[0] = reg | SPI_WRITE;
     memcpy(buf + 1, data, numBytes);
 
-    SPIEx.write(radioNumber, buf, numBytes + 1);
+    setNss(radioNumber, LOW);
+    SPI.transfer(buf, numBytes + 1);
+    setNss(radioNumber, HIGH);
 }
 
 void ICACHE_RAM_ATTR SX127xHal::dioISR_1()

@@ -23,11 +23,7 @@
 
 #if defined(TARGET_TX)
 extern Stream *TxBackpack;
-#if defined(PLATFORM_ESP32_S3)
-#define LOGGING_UART (Serial)
-#else
 #define LOGGING_UART (*TxBackpack)
-#endif
 #else
 extern Stream *SerialLogger;
 #define LOGGING_UART (*SerialLogger)
@@ -51,7 +47,7 @@ void debugFreeInitLogger();
       LOGGING_UART.print("ERROR: "); \
       debugPrintf(msg, ##__VA_ARGS__); \
       LOGGING_UART.println(); \
-  },LOGGING_UART.println("ERROR: " msg))
+  })(LOGGING_UART.println("ERROR: " msg))
 #endif
 
 #if defined(DEBUG_LOG) && !defined(CRITICAL_FLASH)

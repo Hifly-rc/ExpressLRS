@@ -6,7 +6,6 @@ import UARTupload
 import opentx
 import upload_via_esp8266_backpack
 import esp_compress
-import elrs_helpers
 import BFinitPassthrough
 import ETXinitPassthrough
 import UnifiedConfiguration
@@ -144,7 +143,3 @@ def copyBootApp0bin(source, target, env):
 
 if platform in ['espressif32']:
     env.AddPreAction("$BUILD_DIR/${PROGNAME}.bin", copyBootApp0bin)
-
-if platform in ['espressif32', 'espressif8266']:
-    if not os.path.exists('hardware'):
-        elrs_helpers.git_cmd('clone', 'https://github.com/ExpressLRS/targets', 'hardware')

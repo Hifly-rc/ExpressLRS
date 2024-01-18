@@ -1,34 +1,35 @@
-#if defined(PLATFORM_ESP32)
-#include "hwTimer.h"
+
+#ifdef PLATFORM_ESP32
+#include "ESP32_hwTimer.h"
 #include "logging.h"
 
-void (*hwTimer::callbackTick)() = nullptr;
-void (*hwTimer::callbackTock)() = nullptr;
-
-volatile bool hwTimer::running = false;
-volatile bool hwTimer::isTick = false;
-
-volatile uint32_t hwTimer::HWtimerInterval = TimerIntervalUSDefault;
-volatile int32_t hwTimer::PhaseShift = 0;
-volatile int32_t hwTimer::FreqOffset = 0;
-
-// Internal implementation specific variables
 static hw_timer_t *timer = NULL;
 static portMUX_TYPE isrMutex = portMUX_INITIALIZER_UNLOCKED;
 
+void hwTimer::nullCallback(void) {}
+
 #if defined(TARGET_RX)
+void (*hwTimer::callbackTick)() = &nullCallback;
+#endif
+void (*hwTimer::callbackTock)() = &nullCallback;
+
+volatile uint32_t hwTimer::HWtimerInterval = TimerIntervalUSDefault;
+volatile bool hwTimer::running = false;
+
+#if defined(TARGET_RX)
+volatile bool hwTimer::isTick = false;
+volatile int32_t hwTimer::PhaseShift = 0;
+volatile int32_t hwTimer::FreqOffset = 0;
+
 #define HWTIMER_TICKS_PER_US 5
 #else
 #define HWTIMER_TICKS_PER_US 1
 #endif
 
-void ICACHE_RAM_ATTR hwTimer::init(void (*callbackTick)(), void (*callbackTock)())
+void ICACHE_RAM_ATTR hwTimer::init()
 {
-
     if (!timer)
     {
-        hwTimer::callbackTick = callbackTick;
-        hwTimer::callbackTock = callbackTock;
         timer = timerBegin(0, (APB_CLK_FREQ / 1000000 / HWTIMER_TICKS_PER_US), true);
         timerAttachInterrupt(timer, hwTimer::callback, true);
         DBGLN("hwTimer Init");
@@ -68,23 +69,41 @@ void ICACHE_RAM_ATTR hwTimer::resume()
 
 void ICACHE_RAM_ATTR hwTimer::updateInterval(uint32_t time)
 {
-    // timer should not be running when updateInterval() is called
     HWtimerInterval = time * HWTIMER_TICKS_PER_US;
+#if defined(TARGET_TX)
     if (timer)
     {
         DBGLN("hwTimer interval: %d", time);
         timerAlarmWrite(timer, HWtimerInterval, true);
     }
+#endif
+}
+
+#if defined(TARGET_RX)
+void ICACHE_RAM_ATTR hwTimer::resetFreqOffset()
+{
+    FreqOffset = 0;
+}
+
+void ICACHE_RAM_ATTR hwTimer::incFreqOffset()
+{
+    FreqOffset++;
+}
+
+void ICACHE_RAM_ATTR hwTimer::decFreqOffset()
+{
+    FreqOffset--;
 }
 
 void ICACHE_RAM_ATTR hwTimer::phaseShift(int32_t newPhaseShift)
 {
-    int32_t minVal = -(HWtimerInterval >> 2);
-    int32_t maxVal = (HWtimerInterval >> 2);
+    int32_t minVal = -(hwTimer::HWtimerInterval >> 2);
+    int32_t maxVal = (hwTimer::HWtimerInterval >> 2);
 
     // phase shift is in microseconds
-    PhaseShift = constrain(newPhaseShift, minVal, maxVal) * HWTIMER_TICKS_PER_US;
+    hwTimer::PhaseShift = constrain(newPhaseShift, minVal, maxVal) * HWTIMER_TICKS_PER_US;
 }
+#endif
 
 void ICACHE_RAM_ATTR hwTimer::callback(void)
 {
@@ -94,7 +113,7 @@ void ICACHE_RAM_ATTR hwTimer::callback(void)
 #if defined(TARGET_TX)
         callbackTock();
 #else
-        uint32_t NextInterval = (HWtimerInterval >> 1) + FreqOffset;
+        uint32_t NextInterval = (hwTimer::HWtimerInterval >> 1) + FreqOffset;
         if (hwTimer::isTick)
         {
             timerAlarmWrite(timer, NextInterval, true);
@@ -102,9 +121,9 @@ void ICACHE_RAM_ATTR hwTimer::callback(void)
         }
         else
         {
-            NextInterval += PhaseShift;
+            NextInterval += hwTimer::PhaseShift;
             timerAlarmWrite(timer, NextInterval, true);
-            PhaseShift = 0;
+            hwTimer::PhaseShift = 0;
             hwTimer::callbackTock();
         }
         hwTimer::isTick = !hwTimer::isTick;
