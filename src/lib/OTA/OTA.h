@@ -4,7 +4,7 @@
 #include <cstddef>
 #include "crc.h"
 #include "devCRSF.h"
-#include "FIFO_GENERIC.h"
+#include "FIFO.h"
 
 #define OTA4_PACKET_SIZE     8U
 #define OTA4_CRC_CALC_LEN    offsetof(OTA_Packet4_s, crcLow)
@@ -186,8 +186,8 @@ typedef bool (*UnpackChannelData_t)(OTA_Packet_s const * const otaPktPtr, uint32
 extern UnpackChannelData_t OtaUnpackChannelData;
 #endif
 
-void OtaPackAirportData(OTA_Packet_s * const otaPktPtr, FIFO_GENERIC<AP_MAX_BUF_LEN>  * inputBuffer);
-void OtaUnpackAirportData(OTA_Packet_s const * const otaPktPtr, FIFO_GENERIC<AP_MAX_BUF_LEN>  * outputBuffer);
+void OtaPackAirportData(OTA_Packet_s * const otaPktPtr, FIFO<AP_MAX_BUF_LEN> *inputBuffer);
+void OtaUnpackAirportData(OTA_Packet_s const * const otaPktPtr, FIFO<AP_MAX_BUF_LEN> *outputBuffer);
 
 #if defined(DEBUG_RCVR_LINKSTATS)
 extern uint32_t debugRcvrLinkstatsPacketId;

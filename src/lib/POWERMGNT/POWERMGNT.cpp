@@ -1,4 +1,5 @@
 #include "targets.h"
+#include "logging.h"
 #include "POWERMGNT.h"
 
 uint8_t powerToCrsfPower(PowerLevels_e Power)
@@ -17,6 +18,23 @@ uint8_t powerToCrsfPower(PowerLevels_e Power)
     case PWR_2000mW: return 6;
     default:
         return 0;
+    }
+}
+
+PowerLevels_e crsfpowerToPower(uint8_t crsfpower)
+{
+    switch (crsfpower)
+    {
+    case 1: return PWR_10mW;
+    case 2: return PWR_25mW;
+    case 3: return PWR_100mW;
+    case 4: return PWR_500mW;
+    case 5: return PWR_1000mW;
+    case 6: return PWR_2000mW;
+    case 7: return PWR_250mW;
+    case 8: return PWR_50mW;
+    default:
+        return PWR_10mW;
     }
 }
 
@@ -249,17 +267,10 @@ void POWERMGNT::setDefaultPower()
 
 void POWERMGNT::setPower(PowerLevels_e Power)
 {
+    Power = constrain(Power, getMinPower(), getMaxPower());
     if (Power == CurrentPower)
         return;
 
-    if (Power < MinPower)
-    {
-        Power = MinPower;
-    }
-    else if (Power > getMaxPower())
-    {
-        Power = getMaxPower();
-    }
 #if defined(POWER_OUTPUT_DAC)
     // DAC is used e.g. for R9M, ES915TX and Voyager
     int mV = isDomain868() ? powerValues868[Power - MinPower] :powerValues[Power - MinPower];
@@ -276,7 +287,11 @@ void POWERMGNT::setPower(PowerLevels_e Power)
         {
             Radio.SetOutputPower(POWER_OUTPUT_VALUES2[Power - MinPower]);
         }
+        #if defined(PLATFORM_ESP32_S3)
+        ERRLN("ESP32-S3 does not have a DAC");
+        #else
         dacWrite(GPIO_PIN_RFamp_APC2, powerValues[Power - MinPower]);
+        #endif
     }
     else
     #endif
