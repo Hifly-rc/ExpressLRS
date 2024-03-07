@@ -16,5 +16,6 @@
     "power_default": 2,
     "power_control": 0,
     "power_values": [2,5,8,12,15],
+    "misc_fan_en": 4,
     "led": 27
 }
