@@ -58,7 +58,7 @@
 #define CRSF_MSP_RESP_PAYLOAD_SIZE 58
 #define CRSF_MSP_MAX_PAYLOAD_SIZE (CRSF_MSP_REQ_PAYLOAD_SIZE > CRSF_MSP_RESP_PAYLOAD_SIZE ? CRSF_MSP_REQ_PAYLOAD_SIZE : CRSF_MSP_RESP_PAYLOAD_SIZE)
 
-typedef enum
+typedef enum : uint8_t
 {
     CRSF_FRAMETYPE_GPS = 0x02,
     CRSF_FRAMETYPE_VARIO = 0x07,
@@ -91,12 +91,13 @@ typedef enum
     CRSF_FRAMETYPE_ARDUPILOT_RESP = 0x80,
 } crsf_frame_type_e;
 
-typedef enum {
-    SUBCOMMAND_CRSF = 0x10
+typedef enum : uint8_t {
+    CRSF_COMMAND_SUBCMD_RX = 0x10
 } crsf_command_e;
 
-typedef enum {
-    COMMAND_MODEL_SELECT_ID = 0x05
+typedef enum : uint8_t {
+    CRSF_COMMAND_SUBCMD_RX_BIND = 0x01,
+    CRSF_COMMAND_MODEL_SELECT_ID = 0x05
 } crsf_subcommand_e;
 
 enum {
@@ -116,7 +117,7 @@ enum {
     CRSF_FRAME_GENERAL_RESP_PAYLOAD_SIZE = CRSF_EXT_FRAME_SIZE(CRSF_FRAME_TX_MSP_FRAME_SIZE)
 };
 
-typedef enum
+typedef enum : uint8_t
 {
     CRSF_ADDRESS_BROADCAST = 0x00,
     CRSF_ADDRESS_USB = 0x10,
@@ -136,7 +137,7 @@ typedef enum
 
 //typedef struct crsf_addr_e asas;
 
-typedef enum
+typedef enum : uint8_t
 {
     CRSF_UINT8 = 0,
     CRSF_INT8 = 1,
@@ -168,7 +169,7 @@ typedef struct crsf_header_s
 {
     uint8_t device_addr; // from crsf_addr_e
     uint8_t frame_size;  // counts size after this byte, so it must be the payload size + 2 (type and crc)
-    uint8_t type;        // from crsf_frame_type_e
+    crsf_frame_type_e type;
 } PACKED crsf_header_t;
 
 #define CRSF_MK_FRAME_T(payload) struct payload##_frame_s { crsf_header_t h; payload p; uint8_t crc; } PACKED
@@ -179,10 +180,11 @@ typedef struct crsf_ext_header_s
     // Common header fields, see crsf_header_t
     uint8_t device_addr;
     uint8_t frame_size;
-    uint8_t type;
+    crsf_frame_type_e type;
     // Extended fields
-    uint8_t dest_addr;
-    uint8_t orig_addr;
+    crsf_addr_e dest_addr;
+    crsf_addr_e orig_addr;
+    uint8_t payload[0];
 } PACKED crsf_ext_header_t;
 
 /**
@@ -288,9 +290,6 @@ union inBuffer_U
     rcPacket_t asRCPacket_t;    // access the memory as RC data
                                 // add other packet types here
 };
-
-
-typedef struct crsf_channels_s crsf_channels_t;
 
 //CRSF_FRAMETYPE_BATTERY_SENSOR
 typedef struct crsf_sensor_battery_s

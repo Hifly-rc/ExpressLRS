@@ -6,9 +6,7 @@
 
 extern void deferExecution(uint32_t ms, std::function<void()> f);
 extern void reconfigureSerial();
-
-extern bool InLoanBindingMode;
-extern bool returnModelFromLoan;
+extern bool BindingModeRequest;
 
 static char modelString[] = "000";
 #if defined(GPIO_PIN_PWM_OUTPUTS)
@@ -131,21 +129,18 @@ static struct luaItem_command luaSetFailsafe = {
 
 //---------------------------- Output Mapping -----------------------------
 
-//---------------------------- Model Loan Out -----------------------------
-
-static struct luaItem_command luaLoanModel = {
-    {"Loan Model", CRSF_COMMAND},
-    lcsIdle, // step
+static struct luaItem_selection luaVolatileBind = {
+    {"Bind Storage", CRSF_TEXT_SELECTION},
+    0, // value
+    "Persistent;Volatile",
     STR_EMPTYSPACE
 };
 
-static struct luaItem_command luaReturnModel = {
-    {"Return Model", CRSF_COMMAND},
+static struct luaItem_command luaBindMode = {
+    {"Enter Bind Mode", CRSF_COMMAND},
     lcsIdle, // step
     STR_EMPTYSPACE
 };
-
-//---------------------------- Model Loan Out -----------------------------
 
 #if defined(GPIO_PIN_PWM_OUTPUTS)
 static void luaparamMappingChannelOut(struct luaPropertiesCommon *item, uint8_t arg)
@@ -222,33 +217,38 @@ static void luaparamMappingChannelIn(struct luaPropertiesCommon *item, uint8_t a
   config.SetPwmChannelRaw(ch, newPwmCh.raw);
 }
 
-static uint8_t configureSerialPin(uint8_t sibling, uint8_t oldMode, uint8_t newMode)
+static void configureSerialPin(uint8_t sibling, uint8_t oldMode, uint8_t newMode)
 {
   for (int ch=0 ; ch<GPIO_PIN_PWM_OUTPUTS_COUNT ; ch++)
   {
     if (GPIO_PIN_PWM_OUTPUTS[ch] == sibling)
     {
-      // set sibling pin channel settings based on this pins settings
-      rx_config_pwm_t newPin3Config;
+      // Retain as much of the sibling's current config as possible
+      rx_config_pwm_t siblingPinConfig;
+      siblingPinConfig.raw = config.GetPwmChannel(ch)->raw;
+
+      // If the new mode is serial, the sibling is also forced to serial
       if (newMode == somSerial)
       {
-        newPin3Config.val.mode = somSerial;
+        siblingPinConfig.val.mode = somSerial;
       }
-      else
+      // If the new mode is not serial, and the sibling is serial, set the sibling to PWM (50Hz)
+      else if (siblingPinConfig.val.mode == somSerial)
       {
-        newPin3Config.val.mode = som50Hz;
+        siblingPinConfig.val.mode = som50Hz;
       }
-      config.SetPwmChannelRaw(ch, newPin3Config.raw);
+
+      config.SetPwmChannelRaw(ch, siblingPinConfig.raw);
       break;
     }
   }
+
   if (oldMode != newMode)
   {
     deferExecution(100, [](){
       reconfigureSerial();
     });
   }
-  return newMode;
 }
 
 static void luaparamMappingOutputMode(struct luaPropertiesCommon *item, uint8_t arg)
@@ -263,11 +263,11 @@ static void luaparamMappingOutputMode(struct luaPropertiesCommon *item, uint8_t 
   // Check if pin == 1/3 and do other pin adjustment accordingly
   if (GPIO_PIN_PWM_OUTPUTS[ch] == 1)
   {
-    newPwmCh.val.mode = configureSerialPin(3, oldMode, newPwmCh.val.mode);
+    configureSerialPin(3, oldMode, newPwmCh.val.mode);
   }
   else if (GPIO_PIN_PWM_OUTPUTS[ch] == 3)
   {
-    newPwmCh.val.mode = configureSerialPin(1, oldMode, newPwmCh.val.mode);
+    configureSerialPin(1, oldMode, newPwmCh.val.mode);
   }
   config.SetPwmChannelRaw(ch, newPwmCh.raw);
 }
@@ -299,7 +299,7 @@ static void luaparamSetFalisafe(struct luaPropertiesCommon *item, uint8_t arg)
     newStep = lcsExecuting;
     msg = "Setting failsafe";
 
-    for (unsigned ch=0; ch<(unsigned)GPIO_PIN_PWM_OUTPUTS_COUNT; ++ch)
+    for (int ch=0; ch<GPIO_PIN_PWM_OUTPUTS_COUNT; ++ch)
     {
       rx_config_pwm_t newPwmCh;
       // The value must fit into the 10 bit range of the failsafe
@@ -374,20 +374,7 @@ static void registerLuaParameters()
   luadevGeneratePowerOpts(&luaTlmPower);
   registerLUAParameter(&luaTlmPower, &luaparamSetPower);
 #endif
-  registerLUAParameter(&luaLoanModel, [](struct luaPropertiesCommon* item, uint8_t arg){
-    // Do it when polling for status i.e. going back to idle, because we're going to lose connection to the TX
-    if (arg == 6) {
-      deferExecution(200, [](){ InLoanBindingMode = true; });
-    }
-    sendLuaCommandResponse(&luaLoanModel, arg < 5 ? lcsExecuting : lcsIdle, arg < 5 ? "Sending..." : "");
-  });
-  registerLUAParameter(&luaReturnModel, [](struct luaPropertiesCommon* item, uint8_t arg){
-    // Do it when polling for status i.e. going back to idle, because we're going to lose connection to the TX
-    if (arg == 6) {
-      deferExecution(200, []() { returnModelFromLoan = true; });
-    }
-    sendLuaCommandResponse(&luaReturnModel, arg < 5 ? lcsExecuting : lcsIdle, arg < 5 ? "Sending..." : "");
-  });
+
 #if defined(GPIO_PIN_PWM_OUTPUTS)
   if (OPT_HAS_SERVO_OUTPUT)
   {
@@ -400,6 +387,17 @@ static void registerLuaParameters()
     registerLUAParameter(&luaSetFailsafe, &luaparamSetFalisafe);
   }
 #endif
+
+  registerLUAParameter(&luaVolatileBind, [](struct luaPropertiesCommon* item, uint8_t arg) {
+    config.SetVolatileBind(arg);
+  });
+  registerLUAParameter(&luaBindMode, [](struct luaPropertiesCommon* item, uint8_t arg){
+    // Complete when TX polls for status i.e. going back to idle, because we're going to lose connection
+    if (arg == lcsQuery) {
+      deferExecution(200, [](){ BindingModeRequest = true; });
+    }
+    sendLuaCommandResponse(&luaBindMode, arg < 5 ? lcsExecuting : lcsIdle, arg < 5 ? "Entering..." : "");
+  });
 
   registerLUAParameter(&luaModelNumber);
   registerLUAParameter(&luaELRSversion);
@@ -447,6 +445,7 @@ static int event()
     itoa(config.GetModelId(), modelString, 10);
     setLuaStringValue(&luaModelNumber, modelString);
   }
+  setLuaTextSelectionValue(&luaVolatileBind, config.GetVolatileBind());
   return DURATION_IMMEDIATELY;
 }
 
