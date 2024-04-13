@@ -9,6 +9,7 @@ let colorTimer = undefined;
 let colorUpdated  = false;
 let storedModelId = 255;
 let buttonActions = [];
+let modeSelectionInit = true;
 let originalUID = undefined;
 let originalUIDType = undefined;
 
@@ -156,6 +157,9 @@ function updatePwmSettings(arPwm) {
             if (other != index) {
               document.querySelectorAll(`#pwm_${other}_mode option`).forEach(opt => {
                 if (opt.value == value) {
+                  if (modeSelectionInit)
+                    opt.disabled = true;
+                  else
                     opt.disabled = enable;
                 }
               });
@@ -184,6 +188,8 @@ function updatePwmSettings(arPwm) {
     };
     failsafeMode.onchange();
   });
+  
+  modeSelectionInit = false;
 
   // put some contraints on pinRx/Tx mode selects
   if (pinRxIndex !== undefined && pinTxIndex !== undefined) {
@@ -251,6 +257,7 @@ function init() {
   // Start on the options tab
   mui.tabs.activate('pane-justified-1');
 @@end
+  initFiledrag();
   initOptions();
 }
 
@@ -270,7 +277,7 @@ function updateUIDType(uidtype) {
     bg = '#1976D2'; // blue/white
     desc = 'The binding UID was generated from a binding phrase set at flash time';
   }
-  if (uidtype === 'Overridden') // TX
+  else if (uidtype === 'Overridden') // TX
   {
     bg = '#689F38'; // green/black
     fg = 'black';
@@ -435,10 +442,36 @@ _('network-tab').addEventListener('mui.tabs.showstart', getNetworks);
 
 // =========================================================
 
-function uploadFile() {
+function initFiledrag() {
+  const fileselect = _('firmware_file');
+  const filedrag = _('filedrag');
+
+  fileselect.addEventListener('change', fileSelectHandler, false);
+
+  const xhr = new XMLHttpRequest();
+  if (xhr.upload) {
+    filedrag.addEventListener('dragover', fileDragHover, false);
+    filedrag.addEventListener('dragleave', fileDragHover, false);
+    filedrag.addEventListener('drop', fileSelectHandler, false);
+    filedrag.style.display = 'block';
+  }
+}
+
+function fileDragHover(e) {
+  e.stopPropagation();
+  e.preventDefault();
+  if (e.target === _('filedrag')) e.target.className = (e.type === 'dragover' ? 'hover' : '');
+}
+
+function fileSelectHandler(e) {
+  fileDragHover(e);
+  const files = e.target.files || e.dataTransfer.files;
+  uploadFile(files[0]);
+}
+
+function uploadFile(file) {
   _('upload_btn').disabled = true
   try {
-    const file = _('firmware_file').files[0];
     const formdata = new FormData();
     formdata.append('upload', file, file.name);
     const ajax = new XMLHttpRequest();
@@ -552,11 +585,6 @@ function abortHandler(event) {
     message: event.target.responseText
   });
 }
-
-_('firmware_file').addEventListener('change', (e) => {
-  e.preventDefault();
-  uploadFile();
-});
 
 @@if isTX:
 _('fileselect').addEventListener('change', (e) => {

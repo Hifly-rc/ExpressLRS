@@ -247,6 +247,7 @@ extern SX127xDriver Radio;
 #elif defined(RADIO_LR1121)
 #define RATE_MAX 14
 #define RATE_BINDING RATE_LORA_50HZ
+#define RATE_DUALBAND_BINDING 9 // 2.4GHz 50Hz
 
 extern LR1121Driver Radio;
 
@@ -268,6 +269,7 @@ uint8_t enumRatetoIndex(expresslrs_RFrates_e const eRate);
 
 extern uint8_t UID[UID_LEN];
 extern bool connectionHasModelMatch;
+extern bool teamraceHasModelMatch;
 extern bool InBindingMode;
 extern uint8_t ExpressLRS_currTlmDenom;
 extern connectionState_e connectionState;
