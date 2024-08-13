@@ -12,10 +12,16 @@ public:
 
     virtual ~SerialAirPort() {}
 
+<<<<<<< HEAD
     void setLinkQualityStats(uint16_t lq, uint16_t rssi) override;
     uint32_t sendRCFrameToFC(bool frameAvailable, uint32_t *channelData) override;
     void sendMSPFrameToFC(uint8_t* data) override;
     void sendLinkStatisticsToFC() override;
+=======
+    void queueLinkStatisticsPacket() override {}
+    void queueMSPFrameTransmission(uint8_t* data) override {}
+    uint32_t sendRCFrame(bool frameAvailable, bool frameMissed, uint32_t *channelData) override;
+>>>>>>> master
 
     int getMaxSerialReadSize() override;
     void handleUARTout() override;

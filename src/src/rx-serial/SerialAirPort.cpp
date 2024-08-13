@@ -9,6 +9,7 @@ FIFO_GENERIC<AP_MAX_BUF_LEN> apInputBuffer;
 FIFO_GENERIC<AP_MAX_BUF_LEN> apOutputBuffer;
 
 
+<<<<<<< HEAD
 void SerialAirPort::setLinkQualityStats(uint16_t lq, uint16_t rssi)
 {
     // unsupported
@@ -20,6 +21,9 @@ void SerialAirPort::sendLinkStatisticsToFC()
 }
 
 uint32_t SerialAirPort::sendRCFrameToFC(bool frameAvailable, uint32_t *channelData)
+=======
+uint32_t SerialAirPort::sendRCFrame(bool frameAvailable, bool frameMissed, uint32_t *channelData)
+>>>>>>> master
 {
     return DURATION_IMMEDIATELY;
 }

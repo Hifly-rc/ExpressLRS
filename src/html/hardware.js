@@ -99,7 +99,12 @@ function fileDragHover(e) {
 function fileSelectHandler(e) {
   fileDragHover(e);
   const files = e.target.files || e.dataTransfer.files;
+<<<<<<< HEAD
   for (let i = 0, f; f = files[i]; i++) {
+=======
+  _('upload_hardware').reset();
+  for (const f of files) {
+>>>>>>> master
     parseFile(f);
   }
 }

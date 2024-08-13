@@ -8,6 +8,7 @@
 #include "logging.h"
 
 #include "devButton.h"
+#include "handset.h"
 
 #define PITMODE_OFF     0
 #define PITMODE_ON      1
@@ -38,18 +39,19 @@ void VtxTriggerSend()
 
 void VtxPitmodeSwitchUpdate()
 {
-    if (config.GetVtxPitmode() == PITMODE_OFF)
+    if (config.GetVtxPitmode() <= PITMODE_ON)
     {
+        pitmodeAuxState = config.GetVtxPitmode();
         return;
     }
 
     uint8_t auxInverted = config.GetVtxPitmode() % 2;
     uint8_t auxNumber = (config.GetVtxPitmode() / 2) + 3;
-    uint8_t currentPitmodeAuxState = CRSF_to_BIT(ChannelData[auxNumber]) ^ auxInverted;
+    uint8_t newPitmodeAuxState = CRSF_to_BIT(ChannelData[auxNumber]) ^ auxInverted;
 
-    if (pitmodeAuxState != currentPitmodeAuxState)
+    if (pitmodeAuxState != newPitmodeAuxState)
     {
-        pitmodeAuxState = currentPitmodeAuxState;
+        pitmodeAuxState = newPitmodeAuxState;
         sendEepromWrite = false;
         VtxTriggerSend();
     }
@@ -61,7 +63,11 @@ static void eepromWriteToMSPOut()
     packet.reset();
     packet.function = MSP_EEPROM_WRITE;
 
+<<<<<<< HEAD
     crsf.AddMspMessage(&packet);
+=======
+    CRSF::AddMspMessage(&packet, CRSF_ADDRESS_FLIGHT_CONTROLLER);
+>>>>>>> master
 }
 
 static void VtxConfigToMSPOut()
@@ -73,24 +79,23 @@ static void VtxConfigToMSPOut()
     packet.reset();
     packet.makeCommand();
     packet.function = MSP_SET_VTX_CONFIG;
-    packet.addByte(vtxIdx);
-    packet.addByte(0);
-    if (config.GetVtxPower()) {
+    packet.addByte(vtxIdx);     // band/channel or frequency low byte
+    packet.addByte(0);          // frequency high byte, if frequency mode
+    if (config.GetVtxPower())
+    {
         packet.addByte(config.GetVtxPower());
-
-        if (config.GetVtxPitmode() == PITMODE_OFF || config.GetVtxPitmode() == PITMODE_ON)
-        {
-            packet.addByte(config.GetVtxPitmode());
-        }
-        else
-        {
-            packet.addByte(pitmodeAuxState);
-        }
+        packet.addByte(pitmodeAuxState);
     }
 
+<<<<<<< HEAD
     crsf.AddMspMessage(&packet);
 
     if (!crsf.IsArmed()) // Do not send while armed.  There is no need to change the video frequency while armed.  It can also cause VRx modules to flash up their OSD menu e.g. Rapidfire.
+=======
+    CRSF::AddMspMessage(&packet, CRSF_ADDRESS_FLIGHT_CONTROLLER);
+
+    if (!handset->IsArmed()) // Do not send while armed.  There is no need to change the video frequency while armed.  It can also cause VRx modules to flash up their OSD menu e.g. Rapidfire.
+>>>>>>> master
     {
         MSP::sendPacket(&packet, TxBackpack); // send to tx-backpack as MSP
     }

@@ -2,7 +2,7 @@
 
 #include <cstdint>
 #include "crsf_protocol.h"
-#include "devCRSF.h"
+#include "CRSF.h"
 
 enum CustomTelemSubTypeID : uint8_t {
     CRSF_AP_CUSTOM_TELEM_SINGLE_PACKET_PASSTHROUGH = 0xF0,
@@ -65,11 +65,13 @@ public:
     uint8_t ReceivedPackagesCount();
     bool AppendTelemetryPackage(uint8_t *package);
 private:
+    bool processInternalTelemetryPackage(uint8_t *package);
     void AppendToPackage(volatile crsf_telemetry_package_t *current);
     uint8_t CRSFinBuffer[CRSF_MAX_PACKET_LEN];
     telemetry_state_s telemetry_state;
     uint8_t currentTelemetryByte;
     uint8_t currentPayloadIndex;
+    uint8_t twoslotLastQueueIndex;
     volatile crsf_telemetry_package_t *telemetryPackageHead;
     uint8_t receivedPackages;
     bool callBootloader;

@@ -136,6 +136,7 @@ local function selectField(step)
   end
 end
 
+<<<<<<< HEAD
 local function fieldGetSelectOpts(data, offset, last)
   if last then
     while data[offset] ~= 0 do
@@ -155,10 +156,19 @@ local function fieldGetSelectOpts(data, offset, last)
     else
       opt = opt .. byteToStr(b)
     end
+=======
+local function fieldGetStrOrOpts(data, offset, last, isOpts)
+  -- For isOpts: Split a table of byte values (string) with ; separator into a table
+  -- Else just read a string until the first null byte
+  local r = last or (isOpts and {})
+  local opt = ''
+  local vcnt = 0
+  repeat
+    local b = data[offset]
+>>>>>>> master
     offset = offset + 1
-    b = data[offset]
-  end
 
+<<<<<<< HEAD
   r[#r+1] = opt
   opt = nil
   return r, offset + 1, collectgarbage("collect")
@@ -176,6 +186,28 @@ local function fieldGetString(data, offset, last)
   end
 
   return result, offset + 1, collectgarbage("collect")
+=======
+    if not last then
+      if r and (b == 59 or b == 0) then -- ';'
+        r[#r+1] = opt
+        if opt ~= '' then
+          vcnt = vcnt + 1
+          opt = ''
+        end
+      elseif b ~= 0 then
+        -- On firmwares that have constants defined for the arrow chars, use them in place of
+        -- the \xc0 \xc1 chars (which are OpenTX-en)
+        -- Use the table to convert the char, else use string.char if not in the table
+        opt = opt .. (({
+          [192] = CHAR_UP or (__opentx and __opentx.CHAR_UP),
+          [193] = CHAR_DOWN or (__opentx and __opentx.CHAR_DOWN)
+        })[b] or string.char(b))
+      end
+    end
+  until b == 0
+
+  return (r or opt), offset, vcnt, collectgarbage("collect")
+>>>>>>> master
 end
 
 local function getDevice(name)
@@ -194,7 +226,20 @@ local function fieldGetValue(data, offset, size)
   return result
 end
 
+<<<<<<< HEAD
 local function fieldUnsignedLoad(field, data, offset, size)
+=======
+local function reloadCurField()
+  local field = getField(lineIndex)
+  fieldTimeout = 0
+  fieldChunk = 0
+  fieldData = nil
+  loadQ[#loadQ+1] = field.id
+end
+
+-- UINT8/INT8/UINT16/INT16 + FLOAT + TEXTSELECT
+local function fieldUnsignedLoad(field, data, offset, size, unitoffset)
+>>>>>>> master
   field.value = fieldGetValue(data, offset, size)
   field.min = fieldGetValue(data, offset+size, size)
   field.max = fieldGetValue(data, offset+2*size, size)
@@ -278,8 +323,19 @@ local function fieldInt16Save(field)
 end
 
 -- TEXT SELECTION
+<<<<<<< HEAD
 local function fieldTextSelectionLoad(field, data, offset)
   field.values, offset = fieldGetSelectOpts(data, offset, field.nc == nil and field.values)
+=======
+local function fieldTextSelLoad(field, data, offset)
+  local vcnt
+  local cached = field.nc == nil and field.values
+  field.values, offset, vcnt = fieldGetStrOrOpts(data, offset, cached, true)
+  -- 'Disable' the line if values only has one option in the list
+  if not cached then
+    field.grey = vcnt <= 1
+  end
+>>>>>>> master
   field.value = data[offset]
   -- min max and default (offset+1 to 3) are not used on selections
   -- units never uses cache
@@ -287,15 +343,19 @@ local function fieldTextSelectionLoad(field, data, offset)
   field.nc = nil -- use cache next time
 end
 
+<<<<<<< HEAD
 local function fieldTextSelectionSave(field)
   crossfireTelemetryPush(0x2D, { deviceId, handsetId, field.id, field.value })
 end
 
 local function fieldTextSelectionDisplay_color(field, y, attr)
+=======
+local function fieldTextSelDisplay_color(field, y, attr, color)
+>>>>>>> master
   local val = field.values[field.value+1] or "ERR"
-  lcd.drawText(COL2, y, val, attr)
+  lcd.drawText(COL2, y, val, attr + color)
   local strPix = lcd.sizeText and lcd.sizeText(val) or (10 * #val)
-  lcd.drawText(COL2 + strPix, y, field.unit, 0)
+  lcd.drawText(COL2 + strPix, y, field.unit, color)
 end
 
 local function fieldTextSelectionDisplay_bw(field, y, attr)
@@ -333,7 +393,11 @@ local function fieldFolderDeviceOpen(field)
 end
 
 local function fieldFolderDisplay(field,y ,attr)
+<<<<<<< HEAD
   lcd.drawText(textXoffset, y, "> " .. field.name, bit32.bor(attr, BOLD))
+=======
+  lcd.drawText(COL1, y, "> " .. field.name, attr + BOLD)
+>>>>>>> master
 end
 
 local function fieldCommandLoad(field, data, offset)
@@ -346,6 +410,8 @@ local function fieldCommandLoad(field, data, offset)
 end
 
 local function fieldCommandSave(field)
+  reloadCurField()
+
   if field.status ~= nil then
     if field.status < 4 then
       field.status = 1
@@ -359,7 +425,7 @@ local function fieldCommandSave(field)
 end
 
 local function fieldCommandDisplay(field, y, attr)
-    lcd.drawText(10, y, "[" .. field.name .. "]", bit32.bor(attr, BOLD))
+    lcd.drawText(10, y, "[" .. field.name .. "]", attr + BOLD)
 end
 
 local function UIbackExec()
@@ -666,6 +732,7 @@ local function lcd_warn()
   lcd.drawText(LCD_W/2, textSize*5, "[OK]", BLINK + INVERS + CENTER)
 end
 
+<<<<<<< HEAD
 local function reloadCurField()
   local field = getField(lineIndex)
   fieldTimeout = 0
@@ -674,6 +741,8 @@ local function reloadCurField()
   loadQ[#loadQ+1] = field.id
 end
 
+=======
+>>>>>>> master
 local function reloadRelatedFields(field)
   -- Reload the parent folder to update the description
   if field.parent then
@@ -730,17 +799,14 @@ local function handleDevicePageEvent(event)
     else
       local field = getField(lineIndex)
       if field and field.name then
-        if field.type < 10 then
+        -- Editable fields
+        if not field.grey and field.type < 10 then
           edit = not edit
+          if not edit then
+            reloadRelatedFields(field)
+          end
         end
         if not edit then
-          if field.type < 10 then
-            -- Editable fields
-            reloadRelatedFields(field)
-          elseif field.type == 13 then
-            -- Command
-            reloadCurField()
-          end
           if functions[field.type+1].save then
             functions[field.type+1].save(field)
           end
@@ -782,11 +848,16 @@ local function runDevicePage(event)
         local attr = lineIndex == (pageOffset+y)
           and ((edit and BLINK or 0) + INVERS)
           or 0
+        local color = field.grey and COLOR_THEME_DISABLED or 0
         if field.type < 11 or field.type == 12 then -- if not folder, command, or back
+<<<<<<< HEAD
           lcd.drawText(textXoffset, y*textSize+textYoffset, field.name, 0)
+=======
+          lcd.drawText(COL1, y*textSize+textYoffset, field.name, color)
+>>>>>>> master
         end
         if functions[field.type+1].display then
-          functions[field.type+1].display(field, y*textSize+textYoffset, attr)
+          functions[field.type+1].display(field, y*textSize+textYoffset, attr, color)
         end
       end
     end
@@ -885,8 +956,16 @@ local function setLCDvar()
   end
   if LCD_W == 480 then
     COL2 = 240
+<<<<<<< HEAD
     maxLineIndex = 10
     textXoffset = 3
+=======
+    if LCD_H == 320 then
+      maxLineIndex = 12
+    else
+      maxLineIndex = 10
+    end
+>>>>>>> master
     textYoffset = 10
     textSize = 22 --textSize is text Height
   elseif LCD_W == 320 then
@@ -901,8 +980,17 @@ local function setLCDvar()
     else
       COL2 = 70
     end
+<<<<<<< HEAD
     maxLineIndex = 6
     textXoffset = 0
+=======
+    if LCD_H == 96 then
+      maxLineIndex = 9
+    else
+      maxLineIndex = 6
+    end
+    COL1 = 0
+>>>>>>> master
     textYoffset = 3
     textSize = 8
   end
@@ -927,6 +1015,42 @@ local function setMock()
   fields[exitButtonId] = {id = exitButtonId, name="----EXIT----", type=17}
 end
 
+local function checkCrsfModule()
+  -- Loop through the modules and look for one set to CRSF (5)
+  for modIdx = 0, 1 do
+    local mod = model.getModule(modIdx)
+    if mod and mod.Type == 5 then
+      -- CRSF found
+      checkCrsfModule = nil
+      return 0
+    end
+  end
+
+  -- No CRSF module found, save an error message for run()
+  lcd.clear()
+  local y = 0
+  lcd.drawText(2, y, "  No ExpressLRS", MIDSIZE)
+  y = y + (textSize * 2) - 2
+  local msgs = {
+    " Enable a CRSF Internal",
+    "   or External module in",
+    "       Model settings",
+    "  If module is internal",
+    " also set Internal RF to",
+    " CRSF in SYS->Hardware",
+  }
+  for i, msg in ipairs(msgs) do
+    lcd.drawText(2, y, msg)
+    y = y + textSize
+    if i == 3 then
+      lcd.drawLine(0, y, LCD_W, y, SOLID, INVERS)
+      y = y + 2
+    end
+  end
+
+  return 0
+end
+
 -- Init
 local function init()
   setLCDvar()
@@ -937,10 +1061,8 @@ end
 
 -- Main
 local function run(event, touchState)
-  if event == nil then
-    error("Cannot be run as a model script!")
-    return 2
-  end
+  if event == nil then return 2 end
+  if checkCrsfModule then return checkCrsfModule() end
 
   local forceRedraw = refreshNext()
 

@@ -11,6 +11,10 @@
 /////////////////////////
 
 #define WORD_ALIGNED_ATTR __attribute__((aligned(4)))
+<<<<<<< HEAD
+=======
+#define WORD_PADDED(size) (((size)+3) & ~3)
+>>>>>>> master
 
 #ifdef PLATFORM_STM32
 /* ICACHE_RAM_ATTR1 is always linked into RAM */
@@ -64,6 +68,7 @@
 
 #ifndef HAS_THERMAL
 #define OPT_HAS_THERMAL false
+#define OPT_HAS_THERMAL_LM75A false
 #elif !defined(OPT_HAS_THERMAL)
 #define OPT_HAS_THERMAL true
 #endif
@@ -237,6 +242,11 @@
 #endif
 #endif
 
+// Using these DEBUG_* imply that no SerialIO will be used so the output is readable
+#if !defined(DEBUG_CRSF_NO_OUTPUT) && defined(TARGET_RX) && (defined(DEBUG_RCVR_LINKSTATS) || defined(DEBUG_RX_SCOREBOARD) || defined(DEBUG_RCVR_SIGNAL_STATS))
+#define DEBUG_CRSF_NO_OUTPUT
+#endif
+
 #if defined(DEBUG_CRSF_NO_OUTPUT)
 #define OPT_CRSF_RCVR_NO_SERIAL true
 #elif defined(TARGET_UNIFIED_RX)
@@ -264,7 +274,7 @@ extern bool pwmSerialDefined;
 #undef Regulatory_Domain_AU_433
 #undef Regulatory_Domain_EU_433
 
-#elif defined(RADIO_SX127X)
+#elif defined(RADIO_SX127X) || defined(RADIO_LR1121)
 #if !(defined(Regulatory_Domain_AU_915) || defined(Regulatory_Domain_FCC_915) || \
         defined(Regulatory_Domain_EU_868) || defined(Regulatory_Domain_IN_866) || \
         defined(Regulatory_Domain_AU_433) || defined(Regulatory_Domain_EU_433) || \
@@ -272,9 +282,15 @@ extern bool pwmSerialDefined;
 #error "Regulatory_Domain is not defined for 900MHz device. Check user_defines.txt!"
 #endif
 #else
-#error "Either RADIO_SX127X or RADIO_SX128X must be defined!"
+#error "Either RADIO_SX127X, RADIO_LR1121 or RADIO_SX128X must be defined!"
 #endif
 
 #if defined(TARGET_UNIFIED_TX) || defined(TARGET_UNIFIED_RX)
+#if !defined(U0RXD_GPIO_NUM)
+#define U0RXD_GPIO_NUM (3)
+#endif
+#if !defined(U0TXD_GPIO_NUM)
+#define U0TXD_GPIO_NUM (1)
+#endif
 #include "hardware.h"
 #endif

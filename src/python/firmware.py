@@ -17,6 +17,7 @@ class DeviceType(Enum):
 class RadioType(Enum):
     SX127X = 0
     SX1280 = 1
+    LR1121 = 2
 
 class FirmwareOptions(NamedTuple):
     hasWiFi: bool
@@ -28,6 +29,15 @@ class FirmwareOptions(NamedTuple):
     bootloader: str
     offset: int
     firmware: str
+
+
+class TXType(Enum):
+    internal = 'internal'
+    external = 'external'
+
+    def __str__(self):
+        return self.value
+
 
 def find_patch_location(mm):
     return mm.find(b'\xBE\xEF\xBA\xBE\xCA\xFE\xF0\x0D')

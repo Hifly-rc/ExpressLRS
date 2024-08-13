@@ -3,16 +3,14 @@
 
 #if defined(HAS_THERMAL) || defined(HAS_FAN)
 
-#if defined(TARGET_RX)
-    #error "devThermal not supported on RX"
-#endif
-
-#include "targets.h"
+#include "config.h"
 #include "logging.h"
 
-#include "config.h"
+#if defined(TARGET_RX)
+extern RxConfig config;
+#else
 extern TxConfig config;
-
+#endif
 #define THERMAL_DURATION 1000
 
 #if defined(HAS_THERMAL)
@@ -60,10 +58,14 @@ uint32_t get_rpm();
 static void initialize()
 {
 #if defined(HAS_THERMAL)
+#if defined(PLATFORM_ESP32_S3)
+    thermal.init();
+#else
     if (OPT_HAS_THERMAL_LM75A && GPIO_PIN_SCL != UNDEF_PIN && GPIO_PIN_SDA != UNDEF_PIN)
     {
         thermal.init();
     }
+#endif
 #endif
     if (GPIO_PIN_FAN_EN != UNDEF_PIN)
     {
@@ -71,10 +73,12 @@ static void initialize()
     }
 }
 
-#if defined(HAS_THERMAL)
 static void timeoutThermal()
 {
+#if defined(HAS_THERMAL)
+#if !defined(PLATFORM_ESP32_S3)
     if(OPT_HAS_THERMAL_LM75A)
+#endif
     {
         thermal.handle();
 #ifdef HAS_SMART_FAN
@@ -90,10 +94,11 @@ static void timeoutThermal()
         }
 #endif
     }
-}
 #endif
+}
 
 #if defined(PLATFORM_ESP32)
+#ifndef TARGET_RX
 static void setFanSpeed()
 {
     const uint8_t defaultFanSpeeds[] = {
@@ -112,6 +117,7 @@ static void setFanSpeed()
     DBGLN("Fan speed: %d (power) -> %u (pwm)", POWERMGNT::currPower(), speed);
 }
 #endif
+#endif
 
 /*
  * For enable-only fans:
@@ -127,13 +133,17 @@ static void timeoutFan()
 #if defined(HAS_FAN)
     static uint8_t fanStateDuration;
     static bool fanIsOn;
+#if defined(TARGET_RX)
+    bool fanShouldBeOn = true;
+#else
     bool fanShouldBeOn = POWERMGNT::currPower() >= (PowerLevels_e)config.GetPowerFanThreshold();
-
+#endif
     if (fanIsOn)
     {
         if (fanShouldBeOn)
         {
 #if defined(PLATFORM_ESP32)
+#ifndef TARGET_RX
             if (GPIO_PIN_FAN_PWM != UNDEF_PIN)
             {
                 static PowerLevels_e lastPower = MinPower;
@@ -149,6 +159,7 @@ static void timeoutFan()
                 }
             }
             else
+#endif
 #endif
             {
                 fanStateDuration = 0; // reset the timeout
@@ -258,12 +269,7 @@ static int event()
 
 static int timeout()
 {
-#if defined(HAS_THERMAL)
-    if (OPT_HAS_THERMAL_LM75A && GPIO_PIN_SCL != UNDEF_PIN && GPIO_PIN_SDA != UNDEF_PIN)
-    {
-        timeoutThermal();
-    }
-#endif
+    timeoutThermal();
     timeoutFan();
     timeoutTacho();
     return THERMAL_DURATION;

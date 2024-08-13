@@ -1,4 +1,4 @@
-@@require(isTX)
+@@require(PLATFORM, isTX, is8285)
 
 /* eslint-disable comma-dangle */
 /* eslint-disable max-len */
@@ -9,6 +9,12 @@ let colorTimer = undefined;
 let colorUpdated  = false;
 let storedModelId = 255;
 let buttonActions = [];
+<<<<<<< HEAD
+=======
+let modeSelectionInit = true;
+let originalUID = undefined;
+let originalUIDType = undefined;
+>>>>>>> master
 
 function _(el) {
   return document.getElementById(el);
@@ -24,13 +30,15 @@ function getPwmFormData() {
     const invert = _(`pwm_${ch}_inv`).checked ? 1 : 0;
     const narrow = _(`pwm_${ch}_nar`).checked ? 1 : 0;
     const failsafeField = _(`pwm_${ch}_fs`);
+    const failsafeModeField = _(`pwm_${ch}_fsmode`);
     let failsafe = failsafeField.value;
     if (failsafe > 2011) failsafe = 2011;
     if (failsafe < 988) failsafe = 988;
     failsafeField.value = failsafe;
+    let failsafeMode = failsafeModeField.value;
 
-    const raw = (narrow << 19) | (mode << 15) | (invert << 14) | (inChannel << 10) | (failsafe - 988);
-    // console.log(`PWM ${ch} mode=${mode} input=${inChannel} fs=${failsafe} inv=${invert} nar=${narrow} raw=${raw}`);
+    const raw = (narrow << 19) | (mode << 15) | (invert << 14) | (inChannel << 10) | (failsafeMode << 20) | (failsafe - 988);
+    // console.log(`PWM ${ch} mode=${mode} input=${inChannel} fs=${failsafe} fsmode=${failsafeMode} inv=${invert} nar=${narrow} raw=${raw}`);
     outData.push(raw);
     ++ch;
   }
@@ -39,7 +47,11 @@ function getPwmFormData() {
 
 function enumSelectGenerate(id, val, arOptions) {
   // Generate a <select> item with every option in arOptions, and select the val element (0-based)
+<<<<<<< HEAD
   const retVal = `<div class="mui-select"><select id="${id}">` +
+=======
+  const retVal = `<div class="mui-select compact"><select id="${id}" class="pwmitm">` +
+>>>>>>> master
         arOptions.map((item, idx) => {
           if (item) return `<option value="${idx}"${(idx == val) ? ' selected' : ''} ${item == 'Disabled' ? 'disabled' : ''}>${item}</option>`;
           return '';
@@ -47,6 +59,25 @@ function enumSelectGenerate(id, val, arOptions) {
   return retVal;
 }
 
+<<<<<<< HEAD
+=======
+function generateFeatureBadges(features) {
+  let str = '';
+  if (!!(features & 1)) str += `<span style="color: #696969; background-color: #a8dcfa" class="badge">TX</span>`;
+  else if (!!(features & 2)) str += `<span style="color: #696969; background-color: #d2faa8" class="badge">RX</span>`;
+  if ((features & 12) === 12) str += `<span style="color: #696969; background-color: #fab4a8" class="badge">I2C</span>`;
+  else if (!!(features & 4)) str += `<span style="color: #696969; background-color: #fab4a8" class="badge">SCL</span>`;
+  else if (!!(features & 8)) str += `<span style="color: #696969; background-color: #fab4a8" class="badge">SDA</span>`;
+
+  // Serial2
+  if ((features & 96) === 96) str += `<span style="color: #696969; background-color: #36b5ff" class="badge">Serial2</span>`;
+  else if (!!(features & 32)) str += `<span style="color: #696969; background-color: #36b5ff" class="badge">RX2</span>`;
+  else if (!!(features & 64)) str += `<span style="color: #696969; background-color: #36b5ff" class="badge">TX2</span>`;
+
+  return str;
+}
+
+>>>>>>> master
 @@if not isTX:
 function updatePwmSettings(arPwm) {
   if (arPwm === undefined) {
@@ -56,9 +87,14 @@ function updatePwmSettings(arPwm) {
   var pin1Index = undefined;
   var pin3Index = undefined;
   // arPwm is an array of raw integers [49664,50688,51200]. 10 bits of failsafe position, 4 bits of input channel, 1 bit invert, 4 bits mode, 1 bit for narrow/750us
+<<<<<<< HEAD
   const htmlFields = ['<div class="mui-panel"><table class="pwmtbl mui-table"><tr><th class="mui--text-center">Output</th><th>Mode</th><th>Input</th><th class="mui--text-center">Invert?</th><th class="mui--text-center">750us?</th><th>Failsafe</th></tr>'];
+=======
+  const htmlFields = ['<div class="mui-panel pwmpnl"><table class="pwmtbl mui-table"><tr><th class="fixed-column">Output</th><th class="mui--text-center fixed-column">Features</th><th>Mode</th><th>Input</th><th class="mui--text-center fixed-column">Invert?</th><th class="mui--text-center fixed-column">750us?</th><th class="mui--text-center fixed-column pwmitm">Failsafe Mode</th><th class="mui--text-center fixed-column pwmitm">Failsafe Pos</th></tr>'];
+>>>>>>> master
   arPwm.forEach((item, index) => {
     const failsafe = (item.config & 1023) + 988; // 10 bits
+    const failsafeMode = (item.config >> 20) & 3; // 2 bits
     const ch = (item.config >> 10) & 15; // 4 bits
     const inv = (item.config >> 14) & 1;
     const mode = (item.config >> 15) & 15; // 4 bits
@@ -75,18 +111,46 @@ function updatePwmSettings(arPwm) {
       modes.push(undefined);  // true PWM
       pin3Index = index;
     }
+<<<<<<< HEAD
+=======
+
+    if (features & 32) {
+      modes.push('Serial2 RX');
+    } else {
+      modes.push(undefined);
+    }
+    if (features & 64) {
+      modes.push('Serial2 TX');
+    } else {
+      modes.push(undefined);
+    }
+
+>>>>>>> master
     const modeSelect = enumSelectGenerate(`pwm_${index}_mode`, mode, modes);
     const inputSelect = enumSelectGenerate(`pwm_${index}_ch`, ch,
         ['ch1', 'ch2', 'ch3', 'ch4',
           'ch5 (AUX1)', 'ch6 (AUX2)', 'ch7 (AUX3)', 'ch8 (AUX4)',
           'ch9 (AUX5)', 'ch10 (AUX6)', 'ch11 (AUX7)', 'ch12 (AUX8)',
           'ch13 (AUX9)', 'ch14 (AUX10)', 'ch15 (AUX11)', 'ch16 (AUX12)']);
+<<<<<<< HEAD
     htmlFields.push(`<tr><th class="mui--text-center">${index+1}</th>
+=======
+    const failsafeModeSelect = enumSelectGenerate(`pwm_${index}_fsmode`, failsafeMode,
+        ['Set Position', 'No Pulses', 'Last Position']); // match eServoOutputFailsafeMode
+    htmlFields.push(`<tr><td class="mui--text-center mui--text-title">${index + 1}</td>
+            <td>${generateFeatureBadges(features)}</td>
+>>>>>>> master
             <td>${modeSelect}</td>
             <td>${inputSelect}</td>
             <td><div class="mui-checkbox mui--text-center"><input type="checkbox" id="pwm_${index}_inv"${(inv) ? ' checked' : ''}></div></td>
             <td><div class="mui-checkbox mui--text-center"><input type="checkbox" id="pwm_${index}_nar"${(narrow) ? ' checked' : ''}></div></td>
+<<<<<<< HEAD
             <td><div class="mui-textfield"><input id="pwm_${index}_fs" value="${failsafe}" size="6"/></div></td></tr>`);
+=======
+            <td>${failsafeModeSelect}</td>
+            <td><div class="mui-textfield compact"><input id="pwm_${index}_fs" value="${failsafe}" size="6" class="pwmitm" /></div></td></tr>`);
+    pinModes[index] = mode;
+>>>>>>> master
   });
   htmlFields.push('</table></div>');
 
@@ -101,7 +165,9 @@ function updatePwmSettings(arPwm) {
     _(`pwm_${index}_inv`).disabled = onoff;
     _(`pwm_${index}_nar`).disabled = onoff;
     _(`pwm_${index}_fs`).disabled = onoff;
+    _(`pwm_${index}_fsmode`).disabled = onoff;
   }
+<<<<<<< HEAD
   // put some contraints on pin1/3 mode selects
   if (pin1Index !== undefined && pin3Index !== undefined) {
     const pin1Mode = _(`pwm_${pin1Index}_mode`);
@@ -112,6 +178,67 @@ function updatePwmSettings(arPwm) {
         setDisabled(pin1Index, true);
         setDisabled(pin3Index, true);
         pin3Mode.disabled = true;
+=======
+  arPwm.forEach((item,index)=>{
+    const pinMode = _(`pwm_${index}_mode`)
+    pinMode.onchange = () => {
+      setDisabled(index, pinMode.value > 9);
+      const updateOthers = (value, enable) => {
+        if (value > 9) { // disable others
+          arPwm.forEach((item, other) => {
+            if (other != index) {
+              document.querySelectorAll(`#pwm_${other}_mode option`).forEach(opt => {
+                if (opt.value == value) {
+                  if (modeSelectionInit)
+                    opt.disabled = true;
+                  else
+                    opt.disabled = enable;
+                }
+              });
+            }
+          })
+        }
+      }
+      updateOthers(pinMode.value, true); // disable others
+      updateOthers(pinModes[index], false); // enable others
+      pinModes[index] = pinMode.value;
+
+      // show Serial2 protocol selection only if Serial2 TX is assigned
+      _('serial1-config').style.display = 'none';
+      if (pinMode.value == 14) // Serial2 TX
+        _('serial1-config').style.display = 'block';
+    }
+    pinMode.onchange();
+
+    // disable and hide the failsafe position field if not using the set-position failsafe mode
+    const failsafeMode = _(`pwm_${index}_fsmode`);
+    failsafeMode.onchange = () => {
+      const failsafeField = _(`pwm_${index}_fs`);
+      if (failsafeMode.value == 0) {
+        failsafeField.disabled = false;
+        failsafeField.style.display = 'block';
+      }
+      else {
+        failsafeField.disabled = true;
+        failsafeField.style.display = 'none';
+      }
+    };
+    failsafeMode.onchange();
+  });
+
+  modeSelectionInit = false;
+
+  // put some constraints on pinRx/Tx mode selects
+  if (pinRxIndex !== undefined && pinTxIndex !== undefined) {
+    const pinRxMode = _(`pwm_${pinRxIndex}_mode`);
+    const pinTxMode = _(`pwm_${pinTxIndex}_mode`);
+    pinRxMode.onchange = () => {
+      if (pinRxMode.value == 9) { // Serial
+        pinTxMode.value = 9;
+        setDisabled(pinRxIndex, true);
+        setDisabled(pinTxIndex, true);
+        pinTxMode.disabled = true;
+>>>>>>> master
         _('serial-config').style.display = 'block';
         _('baud-config').style.display = 'block';
       }
@@ -134,9 +261,15 @@ function updatePwmSettings(arPwm) {
         _('baud-config').style.display = 'block';
       }
     }
+<<<<<<< HEAD
     const pin3 = pin3Mode.value;
     pin1Mode.onchange();
     if(pin1Mode.value != 8) pin3Mode.value = pin3;
+=======
+    const pinTx = pinTxMode.value;
+    pinRxMode.onchange();
+    if (pinRxMode.value != 9) pinTxMode.value = pinTx;
+>>>>>>> master
   }
 }
 @@end
@@ -151,18 +284,29 @@ function init() {
   // setup model match checkbox handler
   _('model-match').onclick = () => {
     if (_('model-match').checked) {
+<<<<<<< HEAD
       _('modelid').style.display = 'block';
       if (storedModelId == 255) {
+=======
+      _('modelNum').style.display = 'block';
+      if (storedModelId === 255) {
+>>>>>>> master
         _('modelid').value = '';
       } else {
         _('modelid').value = storedModelId;
       }
     } else {
-      _('modelid').style.display = 'none';
+      _('modelNum').style.display = 'none';
       _('modelid').value = '255';
     }
   };
+  // Start on the model tab
+  mui.tabs.activate('pane-justified-3');
+@@else:
+  // Start on the options tab
+  mui.tabs.activate('pane-justified-1');
 @@end
+  initFiledrag();
   initOptions();
 }
 
@@ -208,6 +352,7 @@ function updateConfig(data, options) {
   if (data.uid) _('uid').value = data.uid.toString();
 
   let bg = '';
+<<<<<<< HEAD
   let fg = '';
   let text = data.uidtype;
   let desc = '';
@@ -218,28 +363,76 @@ function updateConfig(data, options) {
     desc = 'The default binding UID from the device address will be used';
   }
   if (data.uidtype === 'Flashed') {
+=======
+  let fg = 'white';
+  let desc = '';
+
+  if (!uidtype || uidtype.startsWith('Not set')) // TX
+  {
+    bg = '#D50000';  // red/white
+    uidtype = 'Not set';
+    desc = 'Using autogenerated binding UID';
+  }
+  else if (uidtype === 'Flashed') // TX
+  {
+>>>>>>> master
     bg = '#1976D2'; // blue/white
-    fg = 'white';
     desc = 'The binding UID was generated from a binding phrase set at flash time';
   }
+<<<<<<< HEAD
   if (data.uidtype === 'Overridden') {
     bg = '#689F38'; // green
+=======
+  else if (uidtype === 'Overridden') // TX
+  {
+    bg = '#689F38'; // green/black
+>>>>>>> master
     fg = 'black';
-    desc = 'The binding UID has been generated from a bind-phrase previously entered into the "binding phrase" field above';
+    desc = 'The binding UID has been generated from a binding phrase previously entered into the "binding phrase" field above';
   }
+<<<<<<< HEAD
   if (data.uidtype === 'Traditional') {
     bg = '#D50000'; // red
     fg = 'white';
     desc = 'The binding UID has been set using traditional binding method i.e. button or 3-times power cycle and bound via the Lua script';
   }
   if (data.uidtype === 'On loan') {
-    bg = '#FFA000'; // amber
-    fg = 'black';
-    desc = 'The binding UID has been set using the model-loan feature';
+=======
+  else if (uidtype === 'Modified') // edited here
+  {
+    bg = '#7c00d5'; // purple
+    desc = 'The binding UID has been modified, but not yet saved';
   }
+  else if (uidtype === 'Volatile') // RX
+  {
+>>>>>>> master
+    bg = '#FFA000'; // amber
+    desc = 'The binding UID will be cleared on boot';
+  }
+  else if (uidtype === 'Loaned') // RX
+  {
+    bg = '#FFA000'; // amber
+    desc = 'This receiver is on loan and can be returned using Lua or three-plug';
+  }
+  else // RX
+  {
+    if (_('uid').value.endsWith('0,0,0,0'))
+    {
+      bg = '#FFA000'; // amber
+      uidtype = 'Not bound';
+      desc = 'This receiver is unbound and will boot to binding mode';
+    }
+    else
+    {
+      bg = '#1976D2'; // blue/white
+      uidtype = 'Bound';
+      desc = 'This receiver is bound and will boot waiting for connection';
+    }
+  }
+
   _('uid-type').style.backgroundColor = bg;
   _('uid-type').style.color = fg;
-  _('uid-type').textContent = text;
+  _('uid-type').textContent = uidtype;
   _('uid-text').textContent = desc;
 
   if (data.mode==='STA') {
@@ -249,12 +442,17 @@ function updateConfig(data, options) {
     _('apmode').style.display = 'block';
   }
 @@if not isTX:
+<<<<<<< HEAD
   if (data.hasOwnProperty('modelid') && data.modelid != 255) {
     _('modelid').style.display = 'block';
+=======
+  if (data.hasOwnProperty('modelid') && data.modelid !== 255) {
+    _('modelNum').style.display = 'block';
+>>>>>>> master
     _('model-match').checked = true;
     storedModelId = data.modelid;
   } else {
-    _('modelid').style.display = 'none';
+    _('modelNum').style.display = 'none';
     _('model-match').checked = false;
     storedModelId = 255;
   }
@@ -280,10 +478,41 @@ function updateConfig(data, options) {
       _('rcvr-uart-baud').value = '115200';
     }
   }
+
+  _('serial1-protocol').onchange = () => {
+    if (_('is-airport').checked) {
+      _('rcvr-uart-baud').disabled = false;
+      _('rcvr-uart-baud').value = options['rcvr-uart-baud'];
+      _('serial1-config').style.display = 'none';
+      _('sbus-config').style.display = 'none';
+      return;
+    }
+  }
+
   updatePwmSettings(data.pwm);
   _('serial-protocol').value = data['serial-protocol'];
   _('serial-protocol').onchange();
-  _('is-airport').onchange = _('serial-protocol').onchange;
+  _('serial1-protocol').value = data['serial1-protocol'];
+  _('serial1-protocol').onchange();
+  _('is-airport').onchange = () => {
+    _('serial-protocol').onchange();
+    _('serial1-protocol').onchange();
+  }
+  _('is-airport').onchange;
+  _('vbind').value = data.vbind;
+  _('vbind').onchange = () => {
+    _('bindphrase').style.display = _('vbind').value === '1' ? 'none' : 'block';
+  }
+  _('vbind').onchange();
+
+  // set initial visibility status of Serial2 protocol selection
+  _('serial1-config').style.display = 'none';
+  data.pwm?.forEach((item,index) => {
+    const _pinMode = _(`pwm_${index}_mode`)
+    if (_pinMode.value == 14) // Serial2 TX
+      _('serial1-config').style.display = 'block';
+  });
+
 @@end
 @@if isTX:
   if (data.hasOwnProperty['button-colors']) {
@@ -341,10 +570,53 @@ function getNetworks() {
 
 // =========================================================
 
-function uploadFile() {
+function initFiledrag() {
+  const fileselect = _('firmware_file');
+  const filedrag = _('filedrag');
+
+  fileselect.addEventListener('change', fileSelectHandler, false);
+
+  const xhr = new XMLHttpRequest();
+  if (xhr.upload) {
+    filedrag.addEventListener('dragover', fileDragHover, false);
+    filedrag.addEventListener('dragleave', fileDragHover, false);
+    filedrag.addEventListener('drop', fileSelectHandler, false);
+    filedrag.style.display = 'block';
+  }
+}
+
+function fileDragHover(e) {
+  e.stopPropagation();
+  e.preventDefault();
+  if (e.target === _('filedrag')) e.target.className = (e.type === 'dragover' ? 'hover' : '');
+}
+
+function fileSelectHandler(e) {
+  fileDragHover(e);
+  // ESP32 expects .bin, ESP8285 RX expect .bin.gz
+  const files = e.target.files || e.dataTransfer.files;
+  const fileExt = files[0].name.split('.').pop();
+@@if (is8285 and not isTX):
+  const expectedFileExt = 'gz';
+  const expectedFileExtDesc = '.bin.gz file. <br />Do NOT decompress/unzip/extract the file!';
+@@else:
+  const expectedFileExt = 'bin';
+  const expectedFileExtDesc = '.bin file.';
+@@endif
+  if (fileExt === expectedFileExt) {
+    uploadFile(files[0]);
+  } else {
+    cuteAlert({
+      type: 'error',
+      title: 'Incorrect File Format',
+      message: 'You selected the file &quot;' + files[0].name.toString() + '&quot;.<br />The firmware file must be a ' + expectedFileExtDesc
+    });
+  }
+}
+
+function uploadFile(file) {
   _('upload_btn').disabled = true
   try {
-    const file = _('firmware_file').files[0];
     const formdata = new FormData();
     formdata.append('upload', file, file.name);
     const ajax = new XMLHttpRequest();
@@ -384,7 +656,11 @@ function completeHandler(event) {
     // This is basically a delayed display of the success dialog with a fake progress
     let percent = 0;
     const interval = setInterval(()=>{
+@@if (is8285):
+      percent = percent + 1;
+@@else:
       percent = percent + 2;
+@@end
       _('progressBar').value = percent;
       _('status').innerHTML = percent + '% flashed... please wait';
       if (percent == 100) {
@@ -459,11 +735,15 @@ function abortHandler(event) {
   });
 }
 
+<<<<<<< HEAD
 _('upload_form').addEventListener('submit', (e) => {
   e.preventDefault();
   uploadFile();
 });
 
+=======
+@@if isTX:
+>>>>>>> master
 _('fileselect').addEventListener('change', (e) => {
   const files = e.target.files || e.dataTransfer.files;
   const reader = new FileReader();
@@ -493,6 +773,7 @@ _('fileselect').addEventListener('change', (e) => {
   }
   reader.readAsText(files[0]);
 }, false);
+@@end
 
 // =========================================================
 
@@ -562,11 +843,19 @@ if (_('config') != undefined) {
         return JSON.stringify({
           "pwm": getPwmFormData(),
           "serial-protocol": +_('serial-protocol').value,
+          "serial1-protocol": +_('serial1-protocol').value,
           "sbus-failsafe": +_('sbus-failsafe').value,
           "modelid": +_('modelid').value,
-          "force-tlm": +_('force-tlm').checked
+          "force-tlm": +_('force-tlm').checked,
+          "vbind": +_('vbind').value,
+          "uid": _('uid').value.split(',').map(Number),
         });
-      }));
+      }, () => {
+        originalUID = _('uid').value;
+        originalUIDType = 'Bound';
+        _('phrase').value = '';
+        updateUIDType(originalUIDType);
+    }));
 }
 
 function submitOptions(e) {
@@ -613,7 +902,17 @@ function submitOptions(e) {
           confirmText: 'Reboot',
           cancelText: 'Close'
         }).then((e) => {
+<<<<<<< HEAD
           if (e == 'confirm') {
+=======
+@@if isTX:
+          originalUID = _('uid').value;
+          originalUIDType = 'Overridden';
+          _('phrase').value = '';
+          updateUIDType(originalUIDType);
+@@end
+        if (e === 'confirm') {
+>>>>>>> master
             const xhr = new XMLHttpRequest();
             xhr.open('POST', '/reboot');
             xhr.setRequestHeader('Content-Type', 'application/json');
@@ -676,7 +975,7 @@ function updateOptions(data) {
         if (Array.isArray(value)) _(key).value = value.toString();
         else _(key).value = value;
       }
-      if(_(key).onchange) _(key).onchange();
+      if (_(key).onchange) _(key).onchange();
     }
   }
   if (data['wifi-ssid']) _('homenet').textContent = data['wifi-ssid'];
@@ -704,7 +1003,9 @@ function updateButtons(data) {
     for (const [p, v] of Object.entries(_v['action'])) {
       appendRow(parseInt(b), parseInt(p), v);
     }
-    _(`button${parseInt(b)+1}-color-div`).style.display = 'block';
+    if (_v['color'] !== undefined) {
+      _(`button${parseInt(b)+1}-color-div`).style.display = 'block';
+    }
     _(`button${parseInt(b)+1}-color`).value = toRGB(_v['color']);
   }
   _('button1-color').oninput = changeCurrentColors;
@@ -805,6 +1106,7 @@ function appendRow(b,p,v) {
       <option value='4' ${v['action']===4 ? 'selected' : ''}>Send VTX Settings</option>
       <option value='5' ${v['action']===5 ? 'selected' : ''}>Start WiFi</option>
       <option value='6' ${v['action']===6 ? 'selected' : ''}>Enter Binding Mode</option>
+      <option value='7' ${v['action']===7 ? 'selected' : ''}>Start BLE Joystick</option>
     </select>
     <label>Action</label>
   </div>
@@ -919,7 +1221,25 @@ md5 = function() {
   return calcMD5;
 }();
 
+function isValidUidByte(s) {
+  let f = parseFloat(s);
+  return !isNaN(f) && isFinite(s) && Number.isInteger(f) && f >= 0 && f < 256;
+}
+
 function uidBytesFromText(text) {
+  // If text is 4-6 numbers separated with [commas]/[spaces] use as a literal UID
+  // This is a strict parser to not just extract numbers from text, but only accept if text is only UID bytes
+  if (/^[0-9, ]+$/.test(text))
+  {
+    let asArray = text.split(',').filter(isValidUidByte).map(Number);
+    if (asArray.length >= 4 && asArray.length <= 6)
+    {
+      while (asArray.length < 6)
+        asArray.unshift(0);
+      return asArray;
+    }
+  }
+
   const bindingPhraseFull = `-DMY_BINDING_PHRASE="${text}"`;
   const bindingPhraseHashed = md5(bindingPhraseFull);
   const uidBytes = bindingPhraseHashed.subarray(0, 6);
@@ -931,8 +1251,19 @@ function initBindingPhraseGen() {
   const uid = _('uid');
 
   function setOutput(text) {
+<<<<<<< HEAD
     const uidBytes = uidBytesFromText(text);
     uid.value = uidBytes;
+=======
+    if (text.length === 0) {
+      uid.value = originalUID.toString();
+      updateUIDType(originalUIDType);
+    }
+    else {
+      uid.value = uidBytesFromText(text.trim());
+      updateUIDType('Modified');
+    }
+>>>>>>> master
   }
 
   function updateValue(e) {

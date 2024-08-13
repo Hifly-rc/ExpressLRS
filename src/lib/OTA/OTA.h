@@ -3,9 +3,17 @@
 
 #include <functional>
 #include <cstddef>
+
 #include "crc.h"
+<<<<<<< HEAD
 #include "devCRSF.h"
 #include "FIFO_GENERIC.h"
+=======
+#include "CRSF.h"
+#include "crsf_protocol.h"
+#include "telemetry_protocol.h"
+#include "FIFO.h"
+>>>>>>> master
 
 #define OTA4_PACKET_SIZE     8U
 #define OTA4_CRC_CALC_LEN    offsetof(OTA_Packet4_s, crcLow)
@@ -64,7 +72,8 @@ typedef struct {
         } PACKED dbg_linkstats;
         /** PACKET_TYPE_MSP **/
         struct {
-            uint8_t packageIndex;
+            uint8_t packageIndex:7,
+                    tlmFlag:1;
             uint8_t payload[ELRS4_MSP_BYTES_PER_CALL];
         } msp_ul;
         /** PACKET_TYPE_SYNC **/
@@ -114,7 +123,8 @@ typedef struct {
         /** PACKET_TYPE_MSP **/
         struct {
             uint8_t packetType: 2,
-                    packageIndex: 6;
+                    packageIndex: 5,
+                    tlmFlag: 1;
             uint8_t payload[ELRS8_MSP_BYTES_PER_CALL];
         } msp_ul;
         /** PACKET_TYPE_SYNC **/

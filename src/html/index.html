@@ -1,4 +1,4 @@
-@@require(PLATFORM, VERSION, isTX, sx127x)
+@@require(PLATFORM, VERSION, isTX, hasSubGHz, is8285)
 <!DOCTYPE HTML>
 <html>
 
@@ -21,38 +21,50 @@
 		<div class="mui-panel mui-col-sm-10 mui-col-sm-offset-1">
 
 			<ul class="mui-tabs__bar mui-tabs__bar--justified">
+<<<<<<< HEAD
 				<li class="mui--is-active"><a data-mui-toggle="tab" data-mui-controls="pane-justified-1">Options</a></li>
 				<li><a data-mui-toggle="tab" data-mui-controls="pane-justified-4">WiFi</a></li>
-@@if isTX:
-				<li id="button-tab"><a data-mui-toggle="tab" data-mui-controls="pane-justified-3">Buttons</a></li>
-@@end
+=======
 @@if not isTX:
 				<li><a data-mui-toggle="tab" data-mui-controls="pane-justified-3">Model</a></li>
+@@end
+				<li><a data-mui-toggle="tab" data-mui-controls="pane-justified-1">Options</a></li>
+				<li><a id="network-tab" data-mui-toggle="tab" data-mui-controls="pane-justified-4">WiFi</a></li>
+>>>>>>> master
+@@if isTX:
+				<li id="button-tab"><a data-mui-toggle="tab" data-mui-controls="pane-justified-3">Buttons</a></li>
 @@end
 				<li><a data-mui-toggle="tab" data-mui-controls="pane-justified-2">Update</a></li>
 			</ul>
 
-			<div class="mui-tabs__pane mui--is-active" id="pane-justified-1">
+			<div class="mui-tabs__pane" id="pane-justified-1">
 				<div class="mui-panel">
 					<h2>Runtime Options</h2>
 					This form <b>overrides</b> the options provided when the firmware was flashed. These changes will persist across reboots, but <b>will be reset</b> when the firmware is reflashed.
+@@if isTX:
 					Note: The Binding phrase is <b>not</b> remembered, it is a temporary field used to generate the binding UID.
-					<br/>
-					<br/>
+					<br/><br/>
 					<div class="mui-textfield">
 						<input type="text" id="phrase" name="phrase" placeholder="Binding Phrase" />
 						<label for="phrase">Binding Phrase</label>
 					</div>
 					<form id='upload_options' method='POST' action="/options">
+<<<<<<< HEAD
 						<input type="hidden" id="flash-discriminator" name="flash-discriminator"/>
 						<input type="hidden" id="wifi-ssid" name="wifi-ssid"/>
 						<input type="hidden" id='wifi-password' name='wifi-password'/>
 						<span class="badge" id="uid-type"></span>&nbsp;<span id="uid-text"></span>
 						<br/>
+=======
+>>>>>>> master
 						<div class="mui-textfield">
 							<input size='40' id='uid' name='uid' type='text' class='array' readonly/>
 						</div>
-@@if sx127x:
+@@else:
+					<br/><br/>
+					<form id='upload_options' method='POST' action="/options">
+@@end
+@@if hasSubGHz:
 						<div class="mui-select">
 							<select id='domain' name='domain'>
 								<option value='0'>AU915</option>
@@ -107,8 +119,12 @@
 						<div id="reset-options" style="display: none;">
 							<a class="mui-btn mui-btn--small mui-btn--danger">Reset runtime options to defaults</a>
 						</div>
+						<input type="hidden" id="flash-discriminator" name="flash-discriminator"/>
+						<input type="hidden" id="wifi-ssid" name="wifi-ssid"/>
+						<input type="hidden" id='wifi-password' name='wifi-password'/>
 					</form>
 				</div>
+@@if isTX:
 				<div class="mui-panel">
 					<h2>Import/Export</h2>
 					<br/>
@@ -124,15 +140,16 @@
 						</form>
 					</div>
 				</div>
+@@end
 			</div>
 
 			<div class="mui-tabs__pane" id="pane-justified-2">
 				<div class="mui-panel">
 					<h2>Firmware Update</h2>
-					Choose a file to update module firmware. Select the correct .bin file for @@{PLATFORM} otherwise a bad flash may occur.
-					If this happens you will need to recover via USB/Serial. You may also download the
-					<a href="firmware.bin" title="Click to download firmware">currently running firmware</a>.
+					Select the correct <strong>firmware.bin@@{ ".gz" if (is8285 and not isTX) else "" }</strong> for @@{PLATFORM} otherwise a bad flash may occur.
+					If this happens you will need to recover via USB/Serial. You may also download the <a href="firmware.bin" title="Click to download firmware">currently running firmware</a>.
 					<br/><br/>
+<<<<<<< HEAD
 					<form id='upload_form' method='POST' enctype='multipart/form-data'>
 						<div class="group">
 							<input id='firmware_file' type='file' name='update'>
@@ -142,6 +159,22 @@
 						<h3 id="status"></h3>
 						<progress id="progressBar" value="0" max="100" style="width:100%;"></progress>
 					</form>
+=======
+@@if (is8285 and not isTX):
+					<div class="mui-panel" style="background-color: #fcecae;text-align:center;">Do NOT decompress/unzip/extract the firmware.bin.gz file. Upload the file as it is.</div>
+					<br/>
+@@end
+					<button id="upload_btn" class="mui-btn mui-btn--primary upload" style="margin: 0 auto; display:block;">
+						<label>
+							Select firmware file
+							<input type="file" id="firmware_file" name="update[]" />
+						</label>
+					</button>
+					<div id="filedrag">or drop firmware file here</div>
+					<br/>
+					<h3 id="status"></h3>
+					<progress id="progressBar" value="0" max="100" style="width:100%;"></progress>
+>>>>>>> master
 				</div>
 			</div>
 
@@ -183,19 +216,64 @@
 							<li><b>Input:</b> Input channel from the handset</li>
 							<li><b>Invert:</b> Invert input channel position</li>
 							<li><b>750us:</b> Use half pulse width (494-1006us) with center 750us instead of 988-2012us</li>
+<<<<<<< HEAD
 							<li><b>Failsafe:</b> Absolute position to set the servo on failsafe</li>
 							<ul>
 								<li>Does not use "Invert" flag</li>
 								<li>Value will be halved if "750us" flag is set</li>
 								<li>Will be converted to binary for "On/Off" mode (>1500us = HIGH)</li>
 							</ul>
+=======
+							<li><b>Failsafe</b>
+								<ul>
+									<li>"Set Position" sets the servo to an absolute "Failsafe Pos"
+										<ul>
+											<li>Does not use "Invert" flag</li>
+											<li>Value will be halved if "750us" flag is set</li>
+											<li>Will be converted to binary for "On/Off" mode (>1500us = HIGH)</li>
+										</ul>
+									</li>
+									<li>"No Pulses" stops sending pulses
+										<ul>
+											<li>Unpowers servos</li>
+											<li>May disarm ESCs</li>
+										</ul>
+									</li>
+									<li>"Last Position" continues sending last received channel position</li>
+								</ul>
+							</li>
+>>>>>>> master
 						</ul>
 						<br/><br/>
 						<form action="/pwm" id="pwm" method="POST">
 						</form>
 					</div>
 					<form class="mui-form" action='/config' id='config' method='POST'>
-						<div id="serial-config" style="display: block;">
+						<h2>Binding Phrase</h2>
+						<div class="mui-select">
+							<select id="vbind" name="vbind">
+								<option value="0">Persistent (Default) - Bind information is stored across reboots</option>
+								<option value="1">Volatile - Never store bind information across reboots</option>
+								<option value="2">Returnable - Unbinding a receiver reverts to flashed binding phrase</option>
+							</select>
+							<label for="vbind">Binding storage</label>
+						</div>
+						<div id="bindphrase">
+							Enter a new binding phrase to replace the current binding information.
+							This will persist across reboots, but <b>will be reset</b> if the firmware is flashed with a binding phrase.
+							Note: The Binding phrase is not remembered, it is a temporary field used to generate the binding UID.
+							<br/><br/>
+							<div class="mui-textfield">
+								<input type="text" id="phrase" name="phrase" placeholder="Binding Phrase" />
+								<label for="phrase">Binding Phrase</label>
+							</div>
+							<div class="mui-textfield">
+								<label for="uid"><span id="uid-text"></span></label>
+								<span class="badge" id="uid-type"></span>
+								<input size="40" id="uid" name="uid" type="text" class="array" readonly/>
+							</div>
+						</div>
+						<div id="serial-config">
 							<h2>Serial Protocol</h2>
 							Set the protocol used to communicate with the flight controller.
 							<br/><br/>
@@ -207,8 +285,30 @@
 									<option value='3'>Inverted SBUS</option>
 									<option value='4'>SUMD</option>
 									<option value='5'>DJI RS Pro</option>
+<<<<<<< HEAD
+=======
+									<option value='6'>HoTT Telemetry</option>
+									<option value='7'>MAVLINK</option>
+>>>>>>> master
 								</select>
 								<label>Serial Protocol</label>
+							</div>
+						</div>
+						<div id="serial1-config">
+							<div class="mui-select">
+								<select id='serial1-protocol' name='serial1-protocol'>
+									<option value='0'>Off</option>
+									<option value='1'>CRSF</option>
+									<option value='2'>Inverted CRSF</option>
+									<option value='3'>SBUS</option>
+									<option value='4'>Inverted SBUS</option>
+									<option value='5'>SUMD</option>
+									<option value='6'>DJI RS Pro</option>
+									<option value='7'>HoTT Telemetry</option>
+									<option value='8'>Tramp</option>
+									<option value='9'>SmartAudio</option>
+								</select>
+								<label for='serial1-protocol'>Serial2 Protocol</label>
 							</div>
 						</div>
 						<div id="sbus-config" style="display: none;">
@@ -235,7 +335,7 @@
 						<div class="mui-checkbox">
 							<label><input id='model-match' name='model-match' type='checkbox'/> Enable Model Match</label>
 						</div>
-						<div class="mui-textfield">
+						<div class="mui-textfield" id="modelNum">
 							<input id='modelid' type='text' name='modelid' value="255" required/>
 							<label>Model ID</label>
 						</div>
@@ -249,7 +349,7 @@
 					</form>
 				</div>
 				<div class="mui-panel">
-					<a id="reset-model" href="#">Reset all model settings to defaults.</a>
+					<a id="reset-model" href="#">Reset all model settings to defaults (includes binding).</a>
 				</div>
 			</div>
 @@end

@@ -48,12 +48,12 @@ static uint32_t endTX;
 #define RX_TIMEOUT_PERIOD_BASE SX1280_RADIO_TICK_SIZE_0015_US
 #define RX_TIMEOUT_PERIOD_BASE_NANOS 15625
 
-#ifdef USE_SX1280_DCDC
-    #ifndef OPT_USE_SX1280_DCDC
-        #define OPT_USE_SX1280_DCDC true
+#ifdef USE_HARDWARE_DCDC
+    #ifndef OPT_USE_HARDWARE_DCDC
+        #define OPT_USE_HARDWARE_DCDC true
     #endif
 #else
-    #define OPT_USE_SX1280_DCDC false
+    #define OPT_USE_HARDWARE_DCDC false
 #endif
 
 SX1280Driver::SX1280Driver(): SX12xxDriverCommon()
@@ -77,7 +77,7 @@ void SX1280Driver::End()
     PayloadLength = 8; // Dummy default value which is overwritten during setup.
 }
 
-bool SX1280Driver::Begin()
+bool SX1280Driver::Begin(uint32_t minimumFrequency, uint32_t maximumFrequency)
 {
     hal.init();
     hal.IsrCallback_1 = &SX1280Driver::IsrCallback_1;
@@ -132,8 +132,8 @@ transitioning from FS mode and the other from Standby mode. This causes the tx d
     pwrCurrent = PWRPENDING_NONE;
     SetOutputPower(SX1280_POWER_MIN);
     CommitOutputPower();
-#if defined(USE_SX1280_DCDC)
-    if (OPT_USE_SX1280_DCDC)
+#if defined(USE_HARDWARE_DCDC)
+    if (OPT_USE_HARDWARE_DCDC)
     {
         hal.WriteCommand(SX1280_RADIO_SET_REGULATORMODE, SX1280_USE_DCDC, SX12XX_Radio_All);        // Enable DCDC converter instead of LDO
     }
@@ -224,7 +224,7 @@ void ICACHE_RAM_ATTR SX1280Driver::CommitOutputPower()
     hal.WriteCommand(SX1280_RADIO_SET_TXPARAMS, buf, sizeof(buf), SX12XX_Radio_All);
 }
 
-void SX1280Driver::SetMode(SX1280_RadioOperatingModes_t OPmode, SX12XX_Radio_Number_t radioNumber)
+void SX1280Driver::SetMode(SX1280_RadioOperatingModes_t OPmode, SX12XX_Radio_Number_t radioNumber, uint32_t incomingTimeout)
 {
     /*
     Comment out since it is difficult to keep track of dual radios.
@@ -236,6 +236,8 @@ void SX1280Driver::SetMode(SX1280_RadioOperatingModes_t OPmode, SX12XX_Radio_Num
     // }
 
     WORD_ALIGNED_ATTR uint8_t buf[3];
+    uint16_t tempTimeout;
+
     switch (OPmode)
     {
 
@@ -260,9 +262,10 @@ void SX1280Driver::SetMode(SX1280_RadioOperatingModes_t OPmode, SX12XX_Radio_Num
         break;
 
     case SX1280_MODE_RX:
+        tempTimeout = incomingTimeout ? (incomingTimeout * 1000 / RX_TIMEOUT_PERIOD_BASE_NANOS) : timeout;
         buf[0] = RX_TIMEOUT_PERIOD_BASE;
-        buf[1] = timeout >> 8;
-        buf[2] = timeout & 0xFF;
+        buf[1] = tempTimeout >> 8;
+        buf[2] = tempTimeout & 0xFF;
         hal.WriteCommand(SX1280_RADIO_SET_RX, buf, sizeof(buf), radioNumber, 100);
         break;
 
@@ -554,10 +557,10 @@ bool ICACHE_RAM_ATTR SX1280Driver::RXnbISR(uint16_t irqStatus, SX12XX_Radio_Numb
     return RXdoneCallback(fail);
 }
 
-void ICACHE_RAM_ATTR SX1280Driver::RXnb(SX1280_RadioOperatingModes_t rxMode)
+void ICACHE_RAM_ATTR SX1280Driver::RXnb(SX1280_RadioOperatingModes_t rxMode, uint32_t incomingTimeout)
 {
     RFAMP.RXenable();
-    SetMode(rxMode, SX12XX_Radio_All);
+    SetMode(rxMode, SX12XX_Radio_All, incomingTimeout);
 }
 
 uint8_t ICACHE_RAM_ATTR SX1280Driver::GetRxBufferAddr(SX12XX_Radio_Number_t radioNumber)

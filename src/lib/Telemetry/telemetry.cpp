@@ -125,6 +125,7 @@ void Telemetry::ResetState()
     telemetry_state = TELEMETRY_IDLE;
     currentTelemetryByte = 0;
     currentPayloadIndex = 0;
+    twoslotLastQueueIndex = 0;
     receivedPackages = 0;
 
     uint8_t offset = 0;
@@ -211,35 +212,60 @@ bool Telemetry::RXhandleUARTin(uint8_t data)
     return true;
 }
 
-bool Telemetry::AppendTelemetryPackage(uint8_t *package)
+/**
+ * @brief: Check the CRSF frame for commands that should not be passed on
+ * @return: true if packet was internal and should not be processed further
+*/
+bool Telemetry::processInternalTelemetryPackage(uint8_t *package)
 {
-    const crsf_header_t *header = (crsf_header_t *) package;
+    const crsf_ext_header_t *header = (crsf_ext_header_t *)package;
 
-    if (header->type == CRSF_FRAMETYPE_COMMAND && package[3] == 'b' && package[4] == 'l')
+    if (header->type == CRSF_FRAMETYPE_COMMAND)
     {
-        callBootloader = true;
-        return true;
+        // Non CRSF, dest=b src=l -> reboot to bootloader
+        if (package[3] == 'b' && package[4] == 'l')
+        {
+            callBootloader = true;
+            return true;
+        }
+        // 1. Non CRSF, dest=b src=b -> bind mode
+        // 2. CRSF bind command
+        if ((package[3] == 'b' && package[4] == 'd') ||
+            (header->frame_size >= 6 // official CRSF is 7 bytes with two CRCs
+            && header->dest_addr == CRSF_ADDRESS_CRSF_RECEIVER
+            && header->orig_addr == CRSF_ADDRESS_FLIGHT_CONTROLLER
+            && header->payload[0] == CRSF_COMMAND_SUBCMD_RX
+            && header->payload[1] == CRSF_COMMAND_SUBCMD_RX_BIND))
+        {
+            callEnterBind = true;
+            return true;
+        }
+        // Non CRSF, dest=b src=m -> set modelmatch
+        if (package[3] == 'm' && package[4] == 'm')
+        {
+            callUpdateModelMatch = true;
+            modelMatchId = package[5];
+            return true;
+        }
     }
-    if (header->type == CRSF_FRAMETYPE_COMMAND && package[3] == 'b' && package[4] == 'd')
-    {
-        callEnterBind = true;
-        return true;
-    }
-    if (header->type == CRSF_FRAMETYPE_COMMAND && package[3] == 'm' && package[4] == 'm')
-    {
-        callUpdateModelMatch = true;
-        modelMatchId = package[5];
-        return true;
-    }
-    if (header->type == CRSF_FRAMETYPE_DEVICE_PING && package[CRSF_TELEMETRY_TYPE_INDEX + 1] == CRSF_ADDRESS_CRSF_RECEIVER)
+
+    if (header->type == CRSF_FRAMETYPE_DEVICE_PING && header->dest_addr == CRSF_ADDRESS_CRSF_RECEIVER)
     {
         sendDeviceFrame = true;
         return true;
     }
 
+    return false;
+}
+
+bool Telemetry::AppendTelemetryPackage(uint8_t *package)
+{
+    if (processInternalTelemetryPackage(package))
+        return true;
+
+    const crsf_header_t *header = (crsf_header_t *) package;
     uint8_t targetIndex = 0;
     bool targetFound = false;
-
 
     if (header->type >= CRSF_FRAMETYPE_DEVICE_PING)
     {
@@ -273,25 +299,29 @@ bool Telemetry::AppendTelemetryPackage(uint8_t *package)
                 else // if no TCP client we just want to forward MSP over the link
             #endif
             {
-                // larger msp resonses are sent in two chunks so special handling is needed so both get sent
+#if defined(HAS_MSP_VTX) && defined(TARGET_RX)
                 if (header->type == CRSF_FRAMETYPE_MSP_RESP)
                 {
-#if defined(HAS_MSP_VTX) && defined(TARGET_RX)
                     mspVtxProcessPacket(package);
-#endif
-                    // there is already another response stored
-                    if (payloadTypes[targetIndex].updated)
-                    {
-                        // use other slot
-                        targetIndex = payloadTypesCount - 1;
-                    }
-
-                    // if both slots are taked do not overwrite other data since the first chunk would be lost
-                    if (payloadTypes[targetIndex].updated)
-                    {
-                        targetFound = false;
-                    }
                 }
+#endif
+                // This code is emulating a two slot FIFO with head dropping
+                if (currentPayloadIndex == payloadTypesCount - 2 && payloadTypes[currentPayloadIndex].locked)
+                {
+                    // Sending the first slot, use the second
+                    targetIndex = payloadTypesCount - 1;
+                }
+                else if (currentPayloadIndex == payloadTypesCount - 1 && payloadTypes[currentPayloadIndex].locked)
+                {
+                    // Sending the second slot, use the first
+                    targetIndex = payloadTypesCount - 2;
+                }
+                else if (twoslotLastQueueIndex == payloadTypesCount - 2 && payloadTypes[twoslotLastQueueIndex].updated)
+                {
+                    // Previous frame saved to the first slot, use the second
+                    targetIndex = payloadTypesCount - 1;
+                }
+                twoslotLastQueueIndex = targetIndex;
             }
         }
         else

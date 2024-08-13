@@ -11,7 +11,7 @@ from enum import Enum
 import shutil
 
 import firmware
-from firmware import DeviceType, FirmwareOptions, RadioType, MCUType
+from firmware import DeviceType, FirmwareOptions, RadioType, MCUType, TXType
 import melodyparser
 import UnifiedConfiguration
 import binary_flash
@@ -72,7 +72,9 @@ def generateUID(phrase):
         int(item) if item.isdigit() else -1
         for item in phrase.split(',')
     ]
-    if len(uid) == 6 and all(ele >= 0 and ele < 256 for ele in uid):
+    if (4 <= len(uid) <= 6) and all(ele >= 0 and ele < 256 for ele in uid):
+        # Extend the UID to 6 bytes, as only 4 are needed to bind
+        uid = [0] * (6 - len(uid)) + uid
         uid = bytes(uid)
     else:
         uid = hashlib.md5(("-DMY_BINDING_PHRASE=\""+phrase+"\"").encode()).digest()[0:6]
@@ -84,6 +86,9 @@ def patch_uid(mm, pos, args):
         mm[pos+1:pos + 7] = generateUID(args.phrase)
     pos += 7
     return pos
+
+def patch_flash_discriminator(mm, pos, args):
+    return write32(mm, pos, args.flash_discriminator)
 
 def patch_wifi(mm, pos, args):
     interval = None
@@ -202,6 +207,7 @@ def patch_firmware(options, mm, pos, args):
             mm[pos] = domain_number(args.domain)
         pos += 1
         pos = patch_uid(mm, pos, args)
+        pos = patch_flash_discriminator(mm, pos, args)
         if options.deviceType is DeviceType.TX:
             pos = patch_tx_params(mm, pos, args, options)
         elif options.deviceType is DeviceType.RX:
@@ -251,9 +257,10 @@ def patch_unified(args, options):
         JSONEncoder().encode(json_flags),
         args.target,
         'tx' if options.deviceType is DeviceType.TX else 'rx',
-        '2400' if options.radioChip is RadioType.SX1280 else '900',
+        '2400' if options.radioChip is RadioType.SX1280 else '900' if options.radioChip is RadioType.SX127X else 'dual',
         '32' if options.mcuType is MCUType.ESP32 and options.deviceType is DeviceType.RX else '',
-        options.luaName
+        options.luaName,
+        args.rx_as_tx
     )
 
 def length_check(l, f):
@@ -274,7 +281,7 @@ def ask_for_firmware(args):
             config = jmespath.search('.'.join(map(lambda s: f'"{s}"', args.target.split('.'))), targets)
         else:
             i = 0
-            for k in jmespath.search(f'*.["{moduletype}_2400","{moduletype}_900"][].*[]', targets):
+            for k in jmespath.search(f'*.["{moduletype}_2400","{moduletype}_900","{moduletype}_dual"][].*[]', targets):
                 i += 1
                 products.append(k)
                 print(f"{i}) {k['product_name']}")
@@ -316,6 +323,7 @@ def main():
     parser.add_argument('--dir', action=readable_dir, default=None)
     # Bind phrase
     parser.add_argument('--phrase', type=str, help='Your personal binding phrase')
+    parser.add_argument('--flash-discriminator', type=int, default=randint(1,2**32-1), dest='flash_discriminator', help='Force a fixed flash-descriminator instead of random')
     # WiFi Params
     parser.add_argument('--ssid', type=length_check(32, "ssid"), required=False, help='Home network SSID')
     parser.add_argument('--password', type=length_check(64, "password"), required=False, help='Home network password')
@@ -353,7 +361,15 @@ def main():
     parser.add_argument("--force", action='store_true', default=False, help="Force upload even if target does not match")
     parser.add_argument("--confirm", action='store_true', default=False, help="Confirm upload if a mismatched target was previously uploaded")
     parser.add_argument("--tx", action='store_true', default=False, help="Flash a TX module, RX if not specified")
+<<<<<<< HEAD
     parser.add_argument("--lbt", action='store_true', default=False, help="Use LBT firmware, default is FCC (onl for 2.4GHz firmware)")
+=======
+    parser.add_argument("--lbt", action='store_true', default=False, help="Use LBT firmware, default is FCC (only for 2.4GHz firmware)")
+    parser.add_argument('--rx-as-tx', type=TXType, choices=list(TXType), required=False, default=None, help="Flash an RX module with TX firmware, either internal (full-duplex) or external (half-duplex)")
+    # Deprecated options, left for backward compatibility
+    parser.add_argument('--uart-inverted', action=deprecate_action, nargs=0, help='Deprecated')
+    parser.add_argument('--no-uart-inverted', action=deprecate_action, nargs=0, help='Deprecated')
+>>>>>>> master
 
     #
     # Firmware file to patch/configure
@@ -368,7 +384,20 @@ def main():
         args.target, config = ask_for_firmware(args)
         try:
             file = config['firmware']
+<<<<<<< HEAD
             srcdir = ('LBT/' if args.lbt else 'FCC/') + file
+=======
+            if args.rx_as_tx is not None:
+                if config['platform'].startswith('esp32') or config['platform'].startswith('esp8285') and args.rx_as_tx == TXType.internal:
+                    file = file.replace('_RX', '_TX')
+                else:
+                    print("Selected device cannot operate as 'RX-as-TX' of this type.")
+                    print("STM32 does not support RX as TX.")
+                    print("ESP8285 only supports full-duplex internal RX as TX.")
+                    exit(1)
+            firmware_dir = '' if args.fdir is None else args.fdir + '/'
+            srcdir = firmware_dir + ('LBT/' if args.lbt else 'FCC/') + file
+>>>>>>> master
             dst = 'firmware.bin'
             shutil.copy2(srcdir + '/firmware.bin', ".")
             if os.path.exists(srcdir + '/bootloader.bin'): shutil.copy2(srcdir + '/bootloader.bin', ".")
@@ -390,7 +419,7 @@ def main():
             True if 'features' in config and 'buzzer' in config['features'] else False,
             MCUType.STM32 if config['platform'] == 'stm32' else MCUType.ESP32 if config['platform'] == 'esp32' else MCUType.ESP8266,
             DeviceType.RX if '.rx_' in args.target else DeviceType.TX,
-            RadioType.SX127X if '_900.' in args.target else RadioType.SX1280,
+            RadioType.SX127X if '_900.' in args.target else RadioType.SX1280 if '_2400.' in args.target else RadioType.LR1121,
             config['lua_name'] if 'lua_name' in config else '',
             config['stlink']['bootloader'] if 'stlink' in config else '',
             config['stlink']['offset'] if 'stlink' in config else 0,
@@ -408,6 +437,7 @@ def main():
         if args.flash:
             args.target = config.get('firmware')
             args.accept = config.get('prior_target_name')
+            args.platform = config.get('platform')
             return binary_flash.upload(options, args)
         elif 'upload_methods' in config and 'stock' in config['upload_methods']:
             shutil.copy(args.file.name, 'firmware.elrs')

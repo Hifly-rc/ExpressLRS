@@ -13,17 +13,27 @@ void SerialSUMD::setLinkQualityStats(uint16_t lq, uint16_t rssi)
     rssiDBM = rssi;
 }
 
+<<<<<<< HEAD
 uint32_t SerialSUMD::sendRCFrameToFC(bool frameAvailable, uint32_t *channelData)
+=======
+uint32_t SerialSUMD::sendRCFrame(bool frameAvailable, bool frameMissed, uint32_t *channelData)
+>>>>>>> master
 {
     if (!frameAvailable) {
         return DURATION_IMMEDIATELY;
     }
 
-	uint8_t outBuffer[SUMD_FRAME_16CH_LEN];
+	  uint8_t outBuffer[SUMD_FRAME_16CH_LEN];
 
+<<<<<<< HEAD
 	outBuffer[0] = 0xA8;		//Graupner
 	outBuffer[1] = 0x01;	    //SUMD
 	outBuffer[2] = 0x10;		//16CH	
+=======
+	  outBuffer[0] = 0xA8;		//Graupner
+	  outBuffer[1] = 0x01;	  //SUMD
+	  outBuffer[2] = 0x10;		//16CH
+>>>>>>> master
 
     uint16_t us = (CRSF_to_US(ChannelData[0]) << 3);
     outBuffer[3] = us >> 8;		
@@ -73,6 +83,7 @@ uint32_t SerialSUMD::sendRCFrameToFC(bool frameAvailable, uint32_t *channelData)
     us = (CRSF_to_US(ChannelData[15]) << 3);
     outBuffer[33] = us >> 8;		
     outBuffer[34] = us & 0x00ff;
+<<<<<<< HEAD
 	  
 	uint16_t crc = crc2Byte.calc(outBuffer, (SUMD_HEADER_SIZE + SUMD_DATA_SIZE_16CH), 0);
 	outBuffer[35] = (uint8_t)(crc >> 8);
@@ -81,6 +92,16 @@ uint32_t SerialSUMD::sendRCFrameToFC(bool frameAvailable, uint32_t *channelData)
 	_outputPort->write(outBuffer, sizeof(outBuffer));
 	
     return DURATION_IMMEDIATELY;
+=======
+
+	  uint16_t crc = crc2Byte.calc(outBuffer, (SUMD_HEADER_SIZE + SUMD_DATA_SIZE_16CH), 0);
+	  outBuffer[35] = (uint8_t)(crc >> 8);
+	  outBuffer[36] = (uint8_t)(crc & 0x00ff);
+
+	  _outputPort->write(outBuffer, sizeof(outBuffer));
+
+    return SUMD_CALLBACK_INTERVAL_MS;
+>>>>>>> master
 }
 
 void SerialSUMD::sendLinkStatisticsToFC()

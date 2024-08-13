@@ -1,9 +1,11 @@
+#include <cstdint>
+#include <iostream>
 #include <unity.h>
 #include "msp.h"
 #include "msptypes.h"
 #include "mock_serial.h"
 
-#include "devCRSF.h"
+#include "CRSF.h"
 
 // Create a CRSF object to test
 CRSF crsf;
@@ -31,7 +33,11 @@ void test_encapsulated_msp_send(void)
     packet.addByte(0x00);   // don't enable pitmode
 
     // Ask the CRSF class to send the encapsulated packet to the stream
+<<<<<<< HEAD
     crsf.AddMspMessage(&packet);
+=======
+    CRSF::AddMspMessage(&packet, CRSF_ADDRESS_FLIGHT_CONTROLLER);
+>>>>>>> master
 
     uint8_t* data;
     uint8_t len;
@@ -82,7 +88,11 @@ void test_encapsulated_msp_send_too_long(void)
     packet.addByte(0x05);
 
     // Ask the CRSF class to send the encapsulated packet to the stream
+<<<<<<< HEAD
     crsf.AddMspMessage(&packet);
+=======
+    CRSF::AddMspMessage(&packet, CRSF_ADDRESS_FLIGHT_CONTROLLER);
+>>>>>>> master
 
     uint8_t* data;
     uint8_t len;

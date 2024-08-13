@@ -8,6 +8,7 @@
 #include "TFT/tftdisplay.h"
 
 #include "devButton.h"
+#include "handset.h"
 
 FiniteStateMachine state_machine(entry_fsm);
 
@@ -28,6 +29,7 @@ static bool is_pre_screen_flipped = false;
 #define SCREEN_DURATION 20
 
 extern void jumpToWifiRunning();
+extern void jumpToBleRunning();
 
 static bool jumpToBandSelect = false;
 static bool jumpToChannelSelect = false;
@@ -67,10 +69,15 @@ static int handle(void)
     {
         jumpToWifiRunning();
     }
+    
+    if (state_machine.getParentState() != STATE_JOYSTICK && connectionState == bleJoystick)
+    {
+        jumpToBleRunning();
+    }
 #endif
 
 #ifdef HAS_FIVE_WAY_BUTTON
-    if (!CRSF::IsArmed())
+    if (!handset->IsArmed())
     {
         int key;
         bool isLongPressed;
@@ -129,6 +136,7 @@ static int handle(void)
     {
         state_machine.handleEvent(now, EVENT_TIMEOUT);
     }
+
     return SCREEN_DURATION;
 }
 

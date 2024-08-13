@@ -3,27 +3,47 @@
 #include "rxtx_devLua.h"
 #include "devCRSF.h"
 #include "devServoOutput.h"
+#include "deferred.h"
 
-extern void deferExecution(uint32_t ms, std::function<void()> f);
 extern void reconfigureSerial();
-
-extern bool InLoanBindingMode;
-extern bool returnModelFromLoan;
+#if defined(PLATFORM_ESP32)
+extern void reconfigureSerial1();
+#endif
+extern bool BindingModeRequest;
 
 static char modelString[] = "000";
+<<<<<<< HEAD
 static const char *pwmModes = "50Hz;60Hz;100Hz;160Hz;333Hz;400Hz;10kHzDuty;On/Off";
 static const char *txModes = "50Hz;60Hz;100Hz;160Hz;333Hz;400Hz;10kHzDuty;On/Off;Serial TX";
 static const char *rxModes = "50Hz;60Hz;100Hz;160Hz;333Hz;400Hz;10kHzDuty;On/Off;Serial RX";
+=======
+#if defined(GPIO_PIN_PWM_OUTPUTS)
+static char pwmModes[] = "50Hz;60Hz;100Hz;160Hz;333Hz;400Hz;10kHzDuty;On/Off;DShot;Serial RX;Serial TX;I2C SCL;I2C SDA;Serial2 RX;Serial2 TX";
+#endif
+>>>>>>> master
 
 static struct luaItem_selection luaSerialProtocol = {
     {"Protocol", CRSF_TEXT_SELECTION},
     0, // value
+<<<<<<< HEAD
     "CRSF;Inverted CRSF;SBUS;Inverted SBUS;SUMD;DJI RS Pro",
+=======
+    "CRSF;Inverted CRSF;SBUS;Inverted SBUS;SUMD;DJI RS Pro;HoTT Telemetry;MAVLINK",
+>>>>>>> master
     STR_EMPTYSPACE
 };
 
-static struct luaItem_selection luaFailsafeMode = {
-    {"Failsafe Mode", CRSF_TEXT_SELECTION},
+#if defined(PLATFORM_ESP32)
+static struct luaItem_selection luaSerial1Protocol = {
+    {"Protocol2", CRSF_TEXT_SELECTION},
+    0, // value
+    "Off;CRSF;Inverted CRSF;SBUS;Inverted SBUS;SUMD;DJI RS Pro;HoTT Telemetry;Tramp;SmartAudio",
+    STR_EMPTYSPACE
+};
+#endif
+
+static struct luaItem_selection luaSBUSFailsafeMode = {
+    {"SBUS failsafe", CRSF_TEXT_SELECTION},
     0, // value
     "No Pulses;Last Pos",
     STR_EMPTYSPACE
@@ -63,6 +83,24 @@ static struct luaItem_selection luaDiversityMode = {
     STR_EMPTYSPACE
 };
 #endif
+
+static struct luaItem_folder luaTeamraceFolder = {
+    {"Team Race", CRSF_FOLDER},
+};
+
+static struct luaItem_selection luaTeamraceChannel = {
+    {"Channel", CRSF_TEXT_SELECTION},
+    0, // value
+    "AUX2;AUX3;AUX4;AUX5;AUX6;AUX7;AUX8;AUX9;AUX10;AUX11;AUX12",
+    STR_EMPTYSPACE
+};
+
+static struct luaItem_selection luaTeamracePosition = {
+    {"Position", CRSF_TEXT_SELECTION},
+    0, // value
+    "Disabled;1/Low;2;3;Mid;4;5;6/High",
+    STR_EMPTYSPACE
+};
 
 //----------------------------Info-----------------------------------
 
@@ -138,26 +176,24 @@ static struct luaItem_command luaSetFailsafe = {
 
 //---------------------------- Output Mapping -----------------------------
 
-//---------------------------- Model Loan Out -----------------------------
-
-static struct luaItem_command luaLoanModel = {
-    {"Loan Model", CRSF_COMMAND},
-    lcsIdle, // step
+static struct luaItem_selection luaBindStorage = {
+    {"Bind Storage", CRSF_TEXT_SELECTION},
+    0, // value
+    "Persistent;Volatile;Returnable",
     STR_EMPTYSPACE
 };
 
-static struct luaItem_command luaReturnModel = {
-    {"Return Model", CRSF_COMMAND},
+static struct luaItem_command luaBindMode = {
+    {STR_EMPTYSPACE, CRSF_COMMAND},
     lcsIdle, // step
     STR_EMPTYSPACE
 };
-
-//---------------------------- Model Loan Out -----------------------------
 
 #if defined(GPIO_PIN_PWM_OUTPUTS)
 
 static void luaparamMappingChannelOut(struct luaPropertiesCommon *item, uint8_t arg)
 {
+<<<<<<< HEAD
   setLuaUint8Value(&luaMappingChannelOut, arg);
   // Must trigger an event because this is not a persistent config item
   if (GPIO_PIN_PWM_OUTPUTS[arg-1] == 3)
@@ -173,6 +209,185 @@ static void luaparamMappingChannelOut(struct luaPropertiesCommon *item, uint8_t 
     luaMappingOutputMode.options = pwmModes;
   }
   devicesTriggerEvent();
+=======
+    bool sclAssigned = false;
+    bool sdaAssigned = false;
+#if defined(PLATFORM_ESP32)
+    bool serial1rxAssigned = false;
+    bool serial1txAssigned = false;
+#endif
+
+    const char *no1Option    = ";";
+    const char *no2Options   = ";;";
+    const char *dshot        = ";DShot";
+    const char *serial_RX    = ";Serial RX";
+    const char *serial_TX    = ";Serial TX";
+    const char *i2c_SCL      = ";I2C SCL;";
+    const char *i2c_SDA      = ";;I2C SDA";
+    const char *i2c_BOTH     = ";I2C SCL;I2C SDA";
+#if defined(PLATFORM_ESP32)
+    const char *serial1_RX   = ";Serial2 RX;";
+    const char *serial1_TX   = ";;Serial2 TX";
+    const char *serial1_BOTH = ";Serial2 RX;Serial2 TX";
+#endif
+
+    const char *pModeString;
+
+
+    // find out if use once only modes have already been assigned
+    for (uint8_t ch = 0; ch < GPIO_PIN_PWM_OUTPUTS_COUNT; ch++)
+    {
+      if (ch == (arg -1))
+        continue;
+
+      eServoOutputMode mode = (eServoOutputMode)config.GetPwmChannel(ch)->val.mode;
+
+      if (mode == somSCL)
+        sclAssigned = true;
+
+      if (mode == somSDA)
+        sdaAssigned = true;
+
+#if defined(PLATFORM_ESP32)
+      if (mode == somSerial1RX)
+        serial1rxAssigned = true;
+
+      if (mode == somSerial1TX)
+        serial1txAssigned = true;
+#endif
+    }
+
+    setLuaUint8Value(&luaMappingChannelOut, arg);
+
+    // When the selected output channel changes, update the available PWM modes for that pin
+    // Truncate the select options before the ; following On/Off
+    pwmModes[50] = '\0';
+
+#if defined(PLATFORM_ESP32)
+    // DShot output (1 option)
+    // ;DShot
+    // ESP8266 enum skips this, so it is never present
+    if (GPIO_PIN_PWM_OUTPUTS[arg-1] != 0)   // DShot doesn't work with GPIO0, exclude it
+    {
+        pModeString = dshot;
+    }
+    else
+#endif
+    {
+        pModeString = no1Option;
+    }
+    strcat(pwmModes, pModeString);
+
+    // SerialIO outputs (1 option)
+    // ;[Serial RX] | [Serial TX]
+    if (GPIO_PIN_PWM_OUTPUTS[arg-1] == U0RXD_GPIO_NUM)
+    {
+        pModeString = serial_RX;
+    }
+    else if (GPIO_PIN_PWM_OUTPUTS[arg-1] == U0TXD_GPIO_NUM)
+    {
+        pModeString = serial_TX;
+    }
+    else
+    {
+        pModeString = no1Option;
+    }
+    strcat(pwmModes, pModeString);
+
+    // I2C pins (2 options)
+    // ;[I2C SCL] ;[I2C SDA]
+    if (GPIO_PIN_SCL != UNDEF_PIN || GPIO_PIN_SDA != UNDEF_PIN)
+    {
+        // If the target defines SCL/SDA then those pins MUST be used
+        if (GPIO_PIN_PWM_OUTPUTS[arg-1] == GPIO_PIN_SCL)
+        {
+            pModeString = i2c_SCL;
+        }
+        else if (GPIO_PIN_PWM_OUTPUTS[arg-1] == GPIO_PIN_SDA)
+        {
+            pModeString = i2c_SDA;
+        }
+        else
+        {
+            pModeString = no2Options;
+        }
+    }
+    else
+    {
+        // otherwise allow any pin to be either SCL or SDA but only once
+        if (sclAssigned && !sdaAssigned)
+        {
+            pModeString = i2c_SDA;
+        }
+        else if (sdaAssigned && !sclAssigned)
+        {
+            pModeString = i2c_SCL;
+        }
+        else if (!sclAssigned && !sdaAssigned)
+        {
+            pModeString = i2c_BOTH;
+        }
+        else
+        {
+            pModeString = no2Options;
+        }
+    }
+    strcat(pwmModes, pModeString);
+
+    // nothing to do for unsupported somPwm mode
+    strcat(pwmModes, no1Option);
+
+#if defined(PLATFORM_ESP32)
+    // secondary Serial pins (2 options)
+    // ;[SERIAL2 RX] ;[SERIAL2_TX]
+    if (GPIO_PIN_SERIAL1_RX != UNDEF_PIN || GPIO_PIN_SERIAL1_TX != UNDEF_PIN)
+    {
+        // If the target defines Serial2 RX/TX then those pins MUST be used
+        if (GPIO_PIN_PWM_OUTPUTS[arg-1] == GPIO_PIN_SERIAL1_RX)
+        {
+            pModeString = serial1_RX;
+        }
+        else if (GPIO_PIN_PWM_OUTPUTS[arg-1] == GPIO_PIN_SERIAL1_TX)
+        {
+            pModeString = serial1_TX;
+        }
+        else
+        { 
+            pModeString = no2Options;
+        }
+    } 
+    else
+    {   // otherwise allow any pin to be either RX or TX but only once
+        if (serial1txAssigned && !serial1rxAssigned)
+        {
+            pModeString = serial1_RX;
+        }        
+        else if (serial1rxAssigned && !serial1txAssigned)
+        {
+            pModeString = serial1_TX;
+        }
+
+        else if (!serial1rxAssigned && !serial1txAssigned)
+        {
+            pModeString = serial1_BOTH;
+        } 
+        else
+        {
+            pModeString = no2Options;
+        }
+    }
+    strcat(pwmModes, pModeString);
+#endif
+
+    // trim off trailing semicolons (assumes pwmModes has at least 1 non-semicolon)
+    for (auto lastPos = strlen(pwmModes)-1; pwmModes[lastPos] == ';'; lastPos--)
+    {
+        pwmModes[lastPos] = '\0';
+    }
+
+    // Trigger an event to update the related fields to represent the selected channel
+    devicesTriggerEvent();
+>>>>>>> master
 }
 
 static void luaparamMappingChannelIn(struct luaPropertiesCommon *item, uint8_t arg)
@@ -185,7 +400,11 @@ static void luaparamMappingChannelIn(struct luaPropertiesCommon *item, uint8_t a
   config.SetPwmChannelRaw(ch, newPwmCh.raw);
 }
 
+<<<<<<< HEAD
 static void configureSerialPin(uint8_t pin, uint8_t sibling, uint8_t oldMode, uint8_t newMode)
+=======
+static void configureSerialPin(uint8_t sibling, uint8_t oldMode, uint8_t newMode)
+>>>>>>> master
 {
   for (int ch=0 ; ch<GPIO_PIN_PWM_OUTPUTS_COUNT ; ch++)
   {
@@ -213,7 +432,7 @@ static void configureSerialPin(uint8_t pin, uint8_t sibling, uint8_t oldMode, ui
 
   if (oldMode != newMode)
   {
-    deferExecution(100, [](){
+    deferExecutionMillis(100, [](){
       reconfigureSerial();
     });
   }
@@ -230,6 +449,7 @@ static void luaparamMappingOutputMode(struct luaPropertiesCommon *item, uint8_t 
   // Check if pin == 1/3 and do other pin adjustment accordingly
   if (GPIO_PIN_PWM_OUTPUTS[ch] == 1)
   {
+<<<<<<< HEAD
     configureSerialPin(1, 3, oldMode, arg);
   }
   else if (GPIO_PIN_PWM_OUTPUTS[ch] == 3)
@@ -239,6 +459,13 @@ static void luaparamMappingOutputMode(struct luaPropertiesCommon *item, uint8_t 
   else if (arg == somSerial)
   {
     newPwmCh.val.mode = oldMode;
+=======
+    configureSerialPin(3, oldMode, newPwmCh.val.mode);
+  }
+  else if (GPIO_PIN_PWM_OUTPUTS[ch] == 3)
+  {
+    configureSerialPin(1, oldMode, newPwmCh.val.mode);
+>>>>>>> master
   }
   config.SetPwmChannelRaw(ch, newPwmCh.raw);
 }
@@ -253,7 +480,7 @@ static void luaparamMappingInverted(struct luaPropertiesCommon *item, uint8_t ar
   config.SetPwmChannelRaw(ch, newPwmCh.raw);
 }
 
-static void luaparamSetFalisafe(struct luaPropertiesCommon *item, uint8_t arg)
+static void luaparamSetFailsafe(struct luaPropertiesCommon *item, uint8_t arg)
 {
   luaCmdStep_e newStep;
   const char *msg;
@@ -269,7 +496,7 @@ static void luaparamSetFalisafe(struct luaPropertiesCommon *item, uint8_t arg)
     newStep = lcsExecuting;
     msg = "Setting failsafe";
 
-    for (unsigned ch=0; ch<(unsigned)GPIO_PIN_PWM_OUTPUTS_COUNT; ++ch)
+    for (int ch=0; ch<GPIO_PIN_PWM_OUTPUTS_COUNT; ++ch)
     {
       rx_config_pwm_t newPwmCh;
       newPwmCh.raw = config.GetPwmChannel(ch)->raw;
@@ -295,18 +522,26 @@ static void registerLuaParameters()
   registerLUAParameter(&luaSerialProtocol, [](struct luaPropertiesCommon* item, uint8_t arg){
     config.SetSerialProtocol((eSerialProtocol)arg);
     if (config.IsModified()) {
-      deferExecution(100, [](){
+      deferExecutionMillis(100, [](){
         reconfigureSerial();
       });
     }
   });
 
-  if (config.GetSerialProtocol() == PROTOCOL_SBUS || config.GetSerialProtocol() == PROTOCOL_INVERTED_SBUS || config.GetSerialProtocol() == PROTOCOL_DJI_RS_PRO)
-  {
-    registerLUAParameter(&luaFailsafeMode, [](struct luaPropertiesCommon* item, uint8_t arg){
-      config.SetFailsafeMode((eFailsafeMode)arg);
-    });
-  }
+#if defined(PLATFORM_ESP32)
+  registerLUAParameter(&luaSerial1Protocol, [](struct luaPropertiesCommon* item, uint8_t arg){
+    config.SetSerial1Protocol((eSerial1Protocol)arg);
+    if (config.IsModified()) {
+      deferExecutionMillis(100, [](){
+        reconfigureSerial1();
+      });
+    }
+  });
+#endif
+
+  registerLUAParameter(&luaSBUSFailsafeMode, [](struct luaPropertiesCommon* item, uint8_t arg){
+    config.SetFailsafeMode((eFailsafeMode)arg);
+  });
 
   if (GPIO_PIN_ANT_CTRL != UNDEF_PIN)
   {
@@ -331,6 +566,7 @@ static void registerLuaParameters()
     config.SetPower(POWERMGNT::currPower());
   });
 #endif
+<<<<<<< HEAD
   registerLUAParameter(&luaRateInitIdx, [](struct luaPropertiesCommon* item, uint8_t arg) {
     uint8_t newRate = RATE_MAX - 1 - arg;
     config.SetRateInitialIdx(newRate);
@@ -349,6 +585,18 @@ static void registerLuaParameters()
     }
     sendLuaCommandResponse(&luaReturnModel, arg < 5 ? lcsExecuting : lcsIdle, arg < 5 ? "Sending..." : "");
   });
+=======
+
+  // Teamrace
+  registerLUAParameter(&luaTeamraceFolder);
+  registerLUAParameter(&luaTeamraceChannel, [](struct luaPropertiesCommon* item, uint8_t arg) {
+    config.SetTeamraceChannel(arg + AUX2);
+  }, luaTeamraceFolder.common.id);
+  registerLUAParameter(&luaTeamracePosition, [](struct luaPropertiesCommon* item, uint8_t arg) {
+    config.SetTeamracePosition(arg);
+  }, luaTeamraceFolder.common.id);
+
+>>>>>>> master
 #if defined(GPIO_PIN_PWM_OUTPUTS)
   if (OPT_HAS_SERVO_OUTPUT)
   {
@@ -357,19 +605,42 @@ static void registerLuaParameters()
     registerLUAParameter(&luaMappingChannelIn, &luaparamMappingChannelIn, luaMappingFolder.common.id);
     registerLUAParameter(&luaMappingOutputMode, &luaparamMappingOutputMode, luaMappingFolder.common.id);
     registerLUAParameter(&luaMappingInverted, &luaparamMappingInverted, luaMappingFolder.common.id);
-    registerLUAParameter(&luaSetFailsafe, &luaparamSetFalisafe);
+    registerLUAParameter(&luaSetFailsafe, &luaparamSetFailsafe);
   }
 #endif
+
+  registerLUAParameter(&luaBindStorage, [](struct luaPropertiesCommon* item, uint8_t arg) {
+    config.SetBindStorage((rx_config_bindstorage_t)arg);
+  });
+  registerLUAParameter(&luaBindMode, [](struct luaPropertiesCommon* item, uint8_t arg){
+    // Complete when TX polls for status i.e. going back to idle, because we're going to lose connection
+    if (arg == lcsQuery) {
+      deferExecutionMillis(200, EnterBindingModeSafely);
+    }
+    sendLuaCommandResponse(&luaBindMode, arg < 5 ? lcsExecuting : lcsIdle, arg < 5 ? "Entering..." : "");
+  });
 
   registerLUAParameter(&luaModelNumber);
   registerLUAParameter(&luaELRSversion);
   registerLUAParameter(NULL);
 }
 
+static void updateBindModeLabel()
+{
+  if (config.IsOnLoan())
+    luaBindMode.common.name = "Return Model";
+  else
+    luaBindMode.common.name = "Enter Bind Mode";
+}
+
 static int event()
 {
   setLuaTextSelectionValue(&luaSerialProtocol, config.GetSerialProtocol());
-  setLuaTextSelectionValue(&luaFailsafeMode, config.GetFailsafeMode());
+#if defined(PLATFORM_ESP32)
+  setLuaTextSelectionValue(&luaSerial1Protocol, config.GetSerial1Protocol());
+#endif
+  
+  setLuaTextSelectionValue(&luaSBUSFailsafeMode, config.GetFailsafeMode());
 
   if (GPIO_PIN_ANT_CTRL != UNDEF_PIN)
   {
@@ -386,6 +657,10 @@ static int event()
   setLuaTextSelectionValue(&luaTlmPower, config.GetPower() - MinPower);
 #endif
   setLuaTextSelectionValue(&luaRateInitIdx, RATE_MAX - 1 - config.GetRateInitialIdx());
+
+  // Teamrace
+  setLuaTextSelectionValue(&luaTeamraceChannel, config.GetTeamraceChannel() - AUX2);
+  setLuaTextSelectionValue(&luaTeamracePosition, config.GetTeamracePosition());
 
 #if defined(GPIO_PIN_PWM_OUTPUTS)
   if (OPT_HAS_SERVO_OUTPUT)
@@ -406,6 +681,8 @@ static int event()
     itoa(config.GetModelId(), modelString, 10);
     setLuaStringValue(&luaModelNumber, modelString);
   }
+  setLuaTextSelectionValue(&luaBindStorage, config.GetBindStorage());
+  updateBindModeLabel();
   return DURATION_IMMEDIATELY;
 }
 
