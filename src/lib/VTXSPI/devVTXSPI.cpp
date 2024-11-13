@@ -1,7 +1,7 @@
-#if defined(GPIO_PIN_SPI_VTX_NSS)
-
-#include "devVTXSPI.h"
 #include "targets.h"
+
+#if defined(TARGET_RX) && defined(PLATFORM_ESP32)
+#include "devVTXSPI.h"
 #include "common.h"
 #include "helpers.h"
 #include "hwTimer.h"
@@ -72,17 +72,10 @@ static bool stopVtxMonitoring = false;
 
 #define VPD_SETPOINT_0_MW                       VPD_BUFFER // to avoid overflow
 #define VPD_SETPOINT_YOLO_MW                    2250
-#if defined(TARGET_UNIFIED_RX)
 const uint16_t *VpdSetPointArray25mW = nullptr;
 const uint16_t *VpdSetPointArray100mW = nullptr;
 const uint16_t *PwmArray25mW = nullptr;
 const uint16_t *PwmArray100mW = nullptr;
-#else
-uint16_t VpdSetPointArray25mW[] = VPD_VALUES_25MW;
-uint16_t VpdSetPointArray100mW[] = VPD_VALUES_100MW;
-uint16_t PwmArray25mW[] = PWM_VALUES_25MW;
-uint16_t PwmArray100mW[] = PWM_VALUES_100MW;
-#endif
 
 uint16_t VpdFreqArray[] = {5650, 5750, 5850, 5950};
 uint8_t VpdSetPointCount =  ARRAY_SIZE(VpdFreqArray);
@@ -352,12 +345,10 @@ void disableVTxSpi()
 
 static void initialize()
 {
-    #if defined(TARGET_UNIFIED_RX)
     VpdSetPointArray25mW = VPD_VALUES_25MW;
     VpdSetPointArray100mW = VPD_VALUES_100MW;
     PwmArray25mW = PWM_VALUES_25MW;
     PwmArray100mW = PWM_VALUES_100MW;
-    #endif
 
     if (GPIO_PIN_SPI_VTX_NSS != UNDEF_PIN)
     {
@@ -484,5 +475,4 @@ device_t VTxSPI_device = {
     .event = nullptr,
     .timeout = timeout
 };
-
 #endif

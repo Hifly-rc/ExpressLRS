@@ -15,8 +15,8 @@
 #define TX_CONFIG_MAGIC     (0b01U << 30)
 #define RX_CONFIG_MAGIC     (0b10U << 30)
 
-#define TX_CONFIG_VERSION   7U
-#define RX_CONFIG_VERSION   9U
+#define TX_CONFIG_VERSION   8U
+#define RX_CONFIG_VERSION   10U
 
 #if defined(TARGET_TX)
 
@@ -45,7 +45,7 @@ typedef enum {
 } headTrackingEnable_t;
 
 typedef struct {
-    uint32_t    rate:4,
+    uint32_t    rate:5,
                 tlm:4,
                 power:3,
                 switchMode:2,
@@ -55,7 +55,7 @@ typedef struct {
                 txAntenna:2,    // FUTURE: Which TX antenna to use, 0=Auto
                 ptrStartChannel:4,
                 ptrEnableChannel:5,
-                linkMode:3;
+                linkMode:2;
 } model_config_t;
 
 typedef struct {
@@ -170,6 +170,7 @@ private:
 #if !defined(PLATFORM_ESP32)
     void UpgradeEepromV5ToV6();
     void UpgradeEepromV6ToV7();
+    void UpgradeEepromV7ToV8();
 #endif
 
     tx_config_t m_config;
@@ -224,9 +225,9 @@ typedef struct __attribute__((packed)) {
     uint8_t     bindStorage:2,     // rx_config_bindstorage_t
                 power:4,
                 antennaMode:2;      // 0=0, 1=1, 2=Diversity
-    uint8_t     powerOnCounter:3,
+    uint8_t     powerOnCounter:2,
                 forceTlmOff:1,
-                rateInitialIdx:4;   // Rate to start rateCycling at on boot
+                rateInitialIdx:5;   // Rate to start rateCycling at on boot
     uint8_t     modelId;
     uint8_t     serialProtocol:4,
                 failsafeMode:2,
@@ -259,9 +260,7 @@ public:
     uint8_t GetPower() const { return m_config.power; }
     uint8_t GetAntennaMode() const { return m_config.antennaMode; }
     bool     IsModified() const { return m_modified; }
-    #if defined(GPIO_PIN_PWM_OUTPUTS)
     const rx_config_pwm_t *GetPwmChannel(uint8_t ch) const { return &m_config.pwmChannels[ch]; }
-    #endif
     bool GetForceTlmOff() const { return m_config.forceTlmOff; }
     uint8_t GetRateInitialIdx() const { return m_config.rateInitialIdx; }
     eSerialProtocol GetSerialProtocol() const { return (eSerialProtocol)m_config.serialProtocol; }
@@ -284,10 +283,8 @@ public:
     void SetAntennaMode(uint8_t antennaMode);
     void SetDefaults(bool commit);
     void SetStorageProvider(ELRS_EEPROM *eeprom);
-    #if defined(GPIO_PIN_PWM_OUTPUTS)
     void SetPwmChannel(uint8_t ch, uint16_t failsafe, uint8_t inputCh, bool inverted, uint8_t mode, bool narrow);
     void SetPwmChannelRaw(uint8_t ch, uint32_t raw);
-    #endif
     void SetForceTlmOff(bool forceTlmOff);
     void SetRateInitialIdx(uint8_t rateInitialIdx);
     void SetSerialProtocol(eSerialProtocol serialProtocol);
@@ -309,6 +306,7 @@ private:
     void UpgradeEepromV5();
     void UpgradeEepromV6();
     void UpgradeEepromV7V8();
+    void UpgradeEepromV9();
 
     rx_config_t m_config;
     ELRS_EEPROM *m_eeprom;

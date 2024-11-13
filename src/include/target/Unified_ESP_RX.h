@@ -1,5 +1,3 @@
-#define TARGET_UNIFIED_RX
-
 // Serial
 #define GPIO_PIN_RCSIGNAL_RX hardware_pin(HARDWARE_serial_rx)
 #define GPIO_PIN_RCSIGNAL_TX hardware_pin(HARDWARE_serial_tx)
@@ -42,40 +40,30 @@
 #define GPIO_PIN_TX_ENABLE_2 hardware_pin(HARDWARE_power_txen_2)
 #define LBT_RSSI_THRESHOLD_OFFSET_DB hardware_int(HARDWARE_power_lna_gain)
 #define MinPower (PowerLevels_e)hardware_int(HARDWARE_power_min)
-#define HighPower (PowerLevels_e)hardware_int(HARDWARE_power_high)
 #define MaxPower (PowerLevels_e)hardware_int(HARDWARE_power_max)
 #define DefaultPower (PowerLevels_e)hardware_int(HARDWARE_power_default)
 
-#define USE_SKY85321
-#define GPIO_PIN_PA_PDET hardware_pin(HARDWARE_power_pdet)
-#define SKY85321_PDET_INTERCEPT hardware_float(HARDWARE_power_pdet_intercept)
-#define SKY85321_PDET_SLOPE hardware_float(HARDWARE_power_pdet_slope)
-
 // default value 0 means direct!
-// #define POWER_OUTPUT_ANALOG (hardware_int(HARDWARE_power_control)==1)   // frsky only
-// #define POWER_OUTPUT_DAC (hardware_int(HARDWARE_power_control)==2)  // stm32 only
 #define POWER_OUTPUT_DACWRITE (hardware_int(HARDWARE_power_control)==3)
-#define POWER_OUTPUT_FIXED -99
 #define POWER_OUTPUT_VALUES hardware_i16_array(HARDWARE_power_values)
+#define POWER_OUTPUT_VALUES_COUNT hardware_int(HARDWARE_power_values_count)
 #define POWER_OUTPUT_VALUES2 hardware_i16_array(HARDWARE_power_values2)
 #define POWER_OUTPUT_VALUES_DUAL hardware_i16_array(HARDWARE_power_values_dual)
+#define POWER_OUTPUT_VALUES_DUAL_COUNT hardware_int(HARDWARE_power_values_dual_count)
 
 // Input
 #define GPIO_PIN_BUTTON hardware_pin(HARDWARE_button)
+#define GPIO_PIN_BUTTON2 UNDEF_PIN
 
 // Lighting
-#define GPIO_PIN_LED hardware_pin(HARDWARE_led)
-#define GPIO_PIN_LED_BLUE hardware_pin(HARDWARE_led_blue)
-#define GPIO_LED_BLUE_INVERTED hardware_pin(HARDWARE_led_blue_invert)
-#define GPIO_PIN_LED_GREEN hardware_pin(HARDWARE_led_green)
-#define GPIO_LED_GREEN_INVERTED hardware_flag(HARDWARE_led_green_invert)
-#define GPIO_PIN_LED_GREEN_RED hardware_pin(HARDWARE_led_green_red)
-#define GPIO_PIN_LED_RED hardware_pin(HARDWARE_led_red)
+#define GPIO_PIN_LED_RED hardware_pin(HARDWARE_led)
 #define GPIO_LED_RED_INVERTED hardware_pin(HARDWARE_led_red_invert)
-#define GPIO_PIN_LED_RED_GREEN hardware_pin(HARDWARE_led_red_green)
+#define GPIO_PIN_LED_BLUE UNDEF_PIN
+#define GPIO_LED_BLUE_INVERTED false
+#define GPIO_PIN_LED_GREEN UNDEF_PIN
+#define GPIO_LED_GREEN_INVERTED false
+
 #define GPIO_PIN_LED_WS2812 hardware_pin(HARDWARE_led_rgb)
-// #define GPIO_PIN_LED_WS2812_FAST // stm32
-#define WS2812_IS_GRB
 #define OPT_WS2812_IS_GRB hardware_flag(HARDWARE_led_rgb_isgrb)
 #define WS2812_STATUS_LEDS hardware_i16_array(HARDWARE_ledidx_rgb_status)
 #define WS2812_STATUS_LEDS_COUNT hardware_int(HARDWARE_ledidx_rgb_status_count)
@@ -91,17 +79,15 @@
 // PWM
 #define GPIO_PIN_PWM_OUTPUTS hardware_i16_array(HARDWARE_pwm_outputs)
 #define GPIO_PIN_PWM_OUTPUTS_COUNT hardware_int(HARDWARE_pwm_outputs_count)
+#define OPT_HAS_SERVO_OUTPUT (GPIO_PIN_PWM_OUTPUTS_COUNT > 0)
 
 // VBat
-#define USE_ANALOG_VBAT
 #define GPIO_ANALOG_VBAT hardware_pin(HARDWARE_vbat)
 #define ANALOG_VBAT_OFFSET hardware_int(HARDWARE_vbat_offset)
 #define ANALOG_VBAT_SCALE hardware_int(HARDWARE_vbat_scale)
 
 #if defined(PLATFORM_ESP32)
 // VTX
-#define HAS_VTX_SPI
-#define HAS_MSP_VTX
 #define OPT_HAS_VTX_SPI (hardware_pin(HARDWARE_vtx_nss) != UNDEF_PIN)
 #define GPIO_PIN_RF_AMP_PWM hardware_pin(HARDWARE_vtx_amp_pwm)
 #define GPIO_PIN_RF_AMP_VPD hardware_pin(HARDWARE_vtx_amp_vpd)
@@ -114,6 +100,11 @@
 #define VPD_VALUES_100MW hardware_u16_array(HARDWARE_vtx_amp_vpd_100mW)
 #define PWM_VALUES_25MW hardware_u16_array(HARDWARE_vtx_amp_pwm_25mW)
 #define PWM_VALUES_100MW hardware_u16_array(HARDWARE_vtx_amp_pwm_100mW)
-#endif
 
+#define OPT_HAS_THERMAL_LM75A false
 #define GPIO_PIN_FAN_EN hardware_pin(HARDWARE_misc_fan_en)
+#define GPIO_PIN_FAN_PWM hardware_pin(HARDWARE_misc_fan_pwm)
+#define GPIO_PIN_FAN_TACHO hardware_pin(HARDWARE_misc_fan_tacho)
+#define GPIO_PIN_FAN_SPEEDS hardware_u16_array(HARDWARE_misc_fan_speeds)
+#define GPIO_PIN_FAN_SPEEDS_COUNT hardware_int(HARDWARE_misc_fan_speeds_count)
+#endif

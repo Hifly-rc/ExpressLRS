@@ -1,6 +1,7 @@
+
 #include "devBaro.h"
 
-#if defined(HAS_BARO)
+#if defined(TARGET_RX)
 
 #include "CRSF.h"
 #include "logging.h"
@@ -23,7 +24,6 @@ extern bool i2c_enabled;
 static bool Baro_Detect()
 {
     // I2C Baros
-#if defined(USE_I2C)
     if (i2c_enabled)
     {
         if (SPL06::detect())
@@ -47,7 +47,6 @@ static bool Baro_Detect()
         // }
         // DBGLN("No baro detected");
     } // I2C
-#endif
     return false;
 }
 
