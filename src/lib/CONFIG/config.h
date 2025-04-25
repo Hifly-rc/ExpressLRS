@@ -105,7 +105,7 @@ class TxConfig
 public:
     TxConfig();
     void Load();
-    void Commit();
+    uint32_t Commit();
 
     // Getters
     uint8_t GetRate() const { return m_model->rate; }
@@ -117,7 +117,7 @@ public:
     uint8_t GetAntennaMode() const { return m_model->txAntenna; }
     uint8_t GetLinkMode() const { return m_model->linkMode; }
     bool GetModelMatch() const { return m_model->modelMatch; }
-    bool     IsModified() const { return m_modified; }
+    bool     IsModified() const { return m_modified != 0; }
     uint8_t  GetVtxBand() const { return m_config.vtxBand; }
     uint8_t  GetVtxChannel() const { return m_config.vtxChannel; }
     uint8_t  GetVtxPower() const { return m_config.vtxPower; }
@@ -175,7 +175,7 @@ private:
 
     tx_config_t m_config;
     ELRS_EEPROM *m_eeprom;
-    uint8_t     m_modified;
+    uint32_t     m_modified;
     model_config_t *m_model;
     uint8_t     m_modelId;
 #if defined(PLATFORM_ESP32)
@@ -196,6 +196,7 @@ typedef enum : uint8_t {
     BINDSTORAGE_PERSISTENT = 0,
     BINDSTORAGE_VOLATILE = 1,
     BINDSTORAGE_RETURNABLE = 2,
+    BINDSTORAGE_ADMINISTERED = 3,
 } rx_config_bindstorage_t;
 
 typedef union {
@@ -246,7 +247,7 @@ public:
     RxConfig();
 
     void Load();
-    void Commit();
+    uint32_t Commit();
 
     // Getters
     bool     GetIsBound() const;
@@ -259,7 +260,7 @@ public:
     uint8_t  GetModelId() const { return m_config.modelId; }
     uint8_t GetPower() const { return m_config.power; }
     uint8_t GetAntennaMode() const { return m_config.antennaMode; }
-    bool     IsModified() const { return m_modified; }
+    bool     IsModified() const { return m_modified != 0; }
     const rx_config_pwm_t *GetPwmChannel(uint8_t ch) const { return &m_config.pwmChannels[ch]; }
     bool GetForceTlmOff() const { return m_config.forceTlmOff; }
     uint8_t GetRateInitialIdx() const { return m_config.rateInitialIdx; }
@@ -310,7 +311,7 @@ private:
 
     rx_config_t m_config;
     ELRS_EEPROM *m_eeprom;
-    bool        m_modified;
+    uint32_t    m_modified;
 };
 
 extern RxConfig config;

@@ -36,11 +36,11 @@ public:
     void startCWTest(uint32_t freq, SX12XX_Radio_Number_t radioNumber);
 
 
-    bool GetFrequencyErrorbool();
+    bool GetFrequencyErrorbool(SX12XX_Radio_Number_t radioNumber);
     // bool FrequencyErrorAvailable() const { return modeSupportsFei && (LastPacketSNRRaw > 0); }
     bool FrequencyErrorAvailable() const { return false; }
 
-    void TXnb(uint8_t * data, uint8_t size, SX12XX_Radio_Number_t radioNumber);
+    void TXnb(uint8_t * data, uint8_t size, bool sendGeminiBuffer, uint8_t * dataGemini, SX12XX_Radio_Number_t radioNumber);
     void RXnb(lr11xx_RadioOperatingModes_t rxMode = LR1121_MODE_RX);
 
     uint32_t GetIrqStatus(SX12XX_Radio_Number_t radioNumber);
@@ -48,6 +48,7 @@ public:
 
     int8_t GetRssiInst(SX12XX_Radio_Number_t radioNumber);
     void GetLastPacketStats();
+    void CheckForSecondPacket();
 
 private:
     // constant used for no power change pending
@@ -89,4 +90,5 @@ private:
     void TXnbISR(); // ISR for non-blocking TX routine
     void CommitOutputPower();
     void WriteOutputPower(uint8_t pwr, bool isSubGHz, SX12XX_Radio_Number_t radioNumber);
+    void SetPaConfig(bool isSubGHz, SX12XX_Radio_Number_t radioNumber);
 };

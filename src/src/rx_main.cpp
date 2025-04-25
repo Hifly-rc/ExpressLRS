@@ -27,6 +27,7 @@
 #include "rx-serial/SerialTramp.h"
 #include "rx-serial/SerialSmartAudio.h"
 #include "rx-serial/SerialDisplayport.h"
+#include "rx-serial/SerialGPS.h"
 
 #include "rx-serial/devSerialIO.h"
 #include "devLED.h"
@@ -452,7 +453,9 @@ bool ICACHE_RAM_ATTR HandleSendTelemetryResponse()
 
     // ESP requires word aligned buffer
     WORD_ALIGNED_ATTR OTA_Packet_s otaPkt = {0};
+    WORD_ALIGNED_ATTR OTA_Packet_s otaPktGemini = {0};
     alreadyTLMresp = true;
+    bool sendGeminiBuffer = false;
 
     bool tlmQueued = false;
     if (firmwareOptions.is_airport)
@@ -469,20 +472,42 @@ bool ICACHE_RAM_ATTR HandleSendTelemetryResponse()
         otaPkt.std.type = PACKET_TYPE_LINKSTATS;
 
         OTA_LinkStats_s * ls;
+
+        // Include some advanced telemetry in the extra space
+        // Note the use of `ul_link_stats.payload` vs just `payload`
         if (OtaIsFullRes)
         {
             ls = &otaPkt.full.tlm_dl.ul_link_stats.stats;
-            // Include some advanced telemetry in the extra space
-            // Note the use of `ul_link_stats.payload` vs just `payload`
-            otaPkt.full.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(
-                otaPkt.full.tlm_dl.ul_link_stats.payload,
-                sizeof(otaPkt.full.tlm_dl.ul_link_stats.payload));
+            otaPkt.full.tlm_dl.ul_link_stats.trueDiversityAvailable = isDualRadio();
+
+            otaPkt.full.tlm_dl.tlmConfirm = MspReceiver.GetCurrentConfirm() ? 1 : 0;
+
+            if (geminiMode)
+            {
+                sendGeminiBuffer = true;
+                WORD_ALIGNED_ATTR uint8_t tlmSenderDoubleBuffer[2 * sizeof(otaPkt.full.tlm_dl.ul_link_stats.payload)] = {0};
+
+                otaPkt.full.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(tlmSenderDoubleBuffer, sizeof(tlmSenderDoubleBuffer));
+                memcpy(otaPkt.full.tlm_dl.ul_link_stats.payload, tlmSenderDoubleBuffer, sizeof(otaPkt.full.tlm_dl.ul_link_stats.payload));
+                LinkStatsToOta(ls);
+
+                otaPktGemini = otaPkt;
+                memcpy(otaPktGemini.full.tlm_dl.ul_link_stats.payload, &tlmSenderDoubleBuffer[sizeof(otaPktGemini.full.tlm_dl.ul_link_stats.payload)], sizeof(otaPktGemini.full.tlm_dl.ul_link_stats.payload));
+            }
+            else
+            {
+                otaPkt.full.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(
+                    otaPkt.full.tlm_dl.ul_link_stats.payload,
+                    sizeof(otaPkt.full.tlm_dl.ul_link_stats.payload));
+                LinkStatsToOta(ls);
+            }
         }
         else
         {
             ls = &otaPkt.std.tlm_dl.ul_link_stats.stats;
+            otaPkt.std.tlm_dl.ul_link_stats.trueDiversityAvailable = isDualRadio();
+            LinkStatsToOta(ls);
         }
-        LinkStatsToOta(ls);
 
         NextTelemetryType = PACKET_TYPE_DATA;
         // Start the count at 1 because the next will be DATA and doing +1 before checking
@@ -511,29 +536,51 @@ bool ICACHE_RAM_ATTR HandleSendTelemetryResponse()
             if (OtaIsFullRes)
             {
                 otaPkt.full.tlm_dl.tlmConfirm = MspReceiver.GetCurrentConfirm() ? 1 : 0;
-                
-                if (TelemetrySender.IsActive())
+
+                if (geminiMode)
                 {
-                    otaPkt.full.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(
-                        otaPkt.full.tlm_dl.payload,
-                        sizeof(otaPkt.full.tlm_dl.payload));
+                    sendGeminiBuffer = true;
+                    WORD_ALIGNED_ATTR uint8_t tlmSenderDoubleBuffer[2 * sizeof(otaPkt.full.tlm_dl.payload)] = {0};
+
+                    otaPkt.full.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(tlmSenderDoubleBuffer, sizeof(tlmSenderDoubleBuffer));
+                    memcpy(otaPkt.full.tlm_dl.payload, tlmSenderDoubleBuffer, sizeof(otaPkt.full.tlm_dl.payload));
+
+                    otaPktGemini = otaPkt;
+                    memcpy(otaPktGemini.full.tlm_dl.payload, &tlmSenderDoubleBuffer[sizeof(otaPktGemini.full.tlm_dl.payload)], sizeof(otaPktGemini.full.tlm_dl.payload));
+                }
+                else
+                {
+                    otaPkt.full.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(otaPkt.full.tlm_dl.payload, sizeof(otaPkt.full.tlm_dl.payload));
                 }
             }
             else
             {
                 otaPkt.std.tlm_dl.tlmConfirm = MspReceiver.GetCurrentConfirm() ? 1 : 0;
 
-                if (TelemetrySender.IsActive())
+                if (geminiMode)
                 {
-                    otaPkt.std.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(
-                        otaPkt.std.tlm_dl.payload,
-                        sizeof(otaPkt.std.tlm_dl.payload));
+                    sendGeminiBuffer = true;
+                    WORD_ALIGNED_ATTR uint8_t tlmSenderDoubleBuffer[2 * sizeof(otaPkt.std.tlm_dl.payload)] = {0};
+
+                    otaPkt.std.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(tlmSenderDoubleBuffer, sizeof(tlmSenderDoubleBuffer));
+                    memcpy(otaPkt.std.tlm_dl.payload, tlmSenderDoubleBuffer, sizeof(otaPkt.std.tlm_dl.payload));
+
+                    otaPktGemini = otaPkt;
+                    memcpy(otaPktGemini.std.tlm_dl.payload, &tlmSenderDoubleBuffer[sizeof(otaPktGemini.std.tlm_dl.payload)], sizeof(otaPktGemini.std.tlm_dl.payload));
+                }
+                else
+                {
+                    otaPkt.std.tlm_dl.packageIndex = TelemetrySender.GetCurrentPayload(otaPkt.std.tlm_dl.payload, sizeof(otaPkt.std.tlm_dl.payload));
                 }
             }
         }
     }
 
     OtaGeneratePacketCrc(&otaPkt);
+    if (sendGeminiBuffer)
+    {
+        OtaGeneratePacketCrc(&otaPktGemini);
+    }
 
     SX12XX_Radio_Number_t transmittingRadio;
     if (config.GetForceTlmOff())
@@ -558,7 +605,17 @@ bool ICACHE_RAM_ATTR HandleSendTelemetryResponse()
         transmittingRadio = Radio.LastPacketRSSI > Radio.LastPacketRSSI2 ? SX12XX_Radio_1 : SX12XX_Radio_2; // Pick the radio with best rf connection to the tx.
     }
 
-    Radio.TXnb((uint8_t*)&otaPkt, ExpressLRS_currAirRate_Modparams->PayloadLength, transmittingRadio);
+    // Gemini flips frequencies between radios on the rx side only.  This is to help minimise antenna cross polarization.
+    // The payloads need to be switch when this happens.
+    // GemX does not switch due to the time required to reconfigure the LR1121 params.
+    if (((OtaNonce + 1)/ExpressLRS_currAirRate_Modparams->FHSShopInterval) % 2 == 0 || !sendGeminiBuffer || FHSSuseDualBand)
+    {
+        Radio.TXnb((uint8_t*)&otaPkt, ExpressLRS_currAirRate_Modparams->PayloadLength, sendGeminiBuffer, (uint8_t*)&otaPktGemini, transmittingRadio);
+    }
+    else
+    {
+        Radio.TXnb((uint8_t*)&otaPktGemini, ExpressLRS_currAirRate_Modparams->PayloadLength, sendGeminiBuffer, (uint8_t*)&otaPkt, transmittingRadio);
+    }
 
     if (transmittingRadio == SX12XX_Radio_NONE)
     {
@@ -570,10 +627,10 @@ bool ICACHE_RAM_ATTR HandleSendTelemetryResponse()
     return true;
 }
 
-int32_t ICACHE_RAM_ATTR HandleFreqCorr(bool value)
+int32_t ICACHE_RAM_ATTR HandleFreqCorr(bool value, SX12XX_Radio_Number_t radio)
 {
     int32_t tempFC = FreqCorrection;
-    if (Radio.GetProcessingPacketRadio() == SX12XX_Radio_2)
+    if (radio == SX12XX_Radio_2)
     {
         tempFC = FreqCorrection_2;
     }
@@ -601,7 +658,7 @@ int32_t ICACHE_RAM_ATTR HandleFreqCorr(bool value)
         }
     }
 
-    if (Radio.GetProcessingPacketRadio() == SX12XX_Radio_1)
+    if (radio == SX12XX_Radio_1)
     {
         FreqCorrection = tempFC;
     }
@@ -809,7 +866,6 @@ void ICACHE_RAM_ATTR HWtimerCallbackTock()
     }
     didFHSS = false;
 
-    Radio.isFirstRxIrq = true;
     updateDiversity();
     tlmSent = HandleSendTelemetryResponse();
 
@@ -831,7 +887,7 @@ void LostConnection(bool resumeRx)
         config.SetRateInitialIdx(ExpressLRS_nextAirRateIndex);
 
     RFmodeCycleMultiplier = 1;
-    connectionState = disconnected; //set lost connection
+    setConnectionState(disconnected); //set lost connection
     RXtimerState = tim_disconnected;
     hwTimer::resetFreqOffset();
     PfdPrevRawOffset = 0;
@@ -863,7 +919,7 @@ void LostConnection(bool resumeRx)
 void ICACHE_RAM_ATTR TentativeConnection(unsigned long now)
 {
     PFDloop.reset();
-    connectionState = tentative;
+    setConnectionState(tentative);
     connectionHasModelMatch = false;
     RXtimerState = tim_disconnected;
     DBGLN("tentative conn");
@@ -885,7 +941,7 @@ void GotConnection(unsigned long now)
 
     LockRFmode = firmwareOptions.lock_on_first_connection;
 
-    connectionState = connected; //we got a packet, therefore no lost connection
+    setConnectionState(connected); //we got a packet, therefore no lost connection
     RXtimerState = tim_tentative;
     GotConnectionMillis = now;
     webserverPreventAutoStart = true;
@@ -1117,6 +1173,8 @@ bool ICACHE_RAM_ATTR ProcessRFPacket(SX12xxDriverCommon::rx_status const status)
     uint32_t const beginProcessing = micros();
 
     OTA_Packet_s * const otaPktPtr = (OTA_Packet_s * const)Radio.RXdataBuffer;
+    OTA_Packet_s * const otaPktPtrSecond = (OTA_Packet_s * const)Radio.RXdataBufferSecond;
+
     if (!OtaValidatePacketCrc(otaPktPtr))
     {
         DBGVLN("CRC error");
@@ -1132,6 +1190,15 @@ bool ICACHE_RAM_ATTR ProcessRFPacket(SX12xxDriverCommon::rx_status const status)
     unsigned long now = millis();
 
     LastValidPacket = now;
+
+    Radio.CheckForSecondPacket();
+    if (Radio.hasSecondRadioGotData)
+    {
+        if (!OtaValidatePacketCrc(otaPktPtrSecond))
+        {
+            Radio.hasSecondRadioGotData = false;
+        }
+    }
 
     switch (otaPktPtr->std.type)
     {
@@ -1161,17 +1228,29 @@ bool ICACHE_RAM_ATTR ProcessRFPacket(SX12xxDriverCommon::rx_status const status)
     Radio.GetLastPacketStats();
     getRFlinkInfo();
 
+    // Adjusts FreqCorrection for RX freq offset
     if (Radio.FrequencyErrorAvailable())
     {
     #if defined(RADIO_SX127X)
-        // Adjusts FreqCorrection for RX freq offset
-        int32_t tempFreqCorrection = HandleFreqCorr(Radio.GetFrequencyErrorbool());
+        int32_t tempFreqCorrection = HandleFreqCorr(Radio.GetFrequencyErrorbool(Radio.GetProcessingPacketRadio()), Radio.GetProcessingPacketRadio());
         // Teamp900 also needs to adjust its demood PPM
-        Radio.SetPPMoffsetReg(tempFreqCorrection);
-    #else /* !RADIO_SX127X */
-        // Adjusts FreqCorrection for RX freq offset
-        HandleFreqCorr(Radio.GetFrequencyErrorbool());
-    #endif /* RADIO_SX127X */
+        Radio.SetPPMoffsetReg(tempFreqCorrection, Radio.GetProcessingPacketRadio());
+
+        if (Radio.hasSecondRadioGotData)
+        {
+            SX12XX_Radio_Number_t secondRadio = Radio.GetProcessingPacketRadio() == SX12XX_Radio_1 ? SX12XX_Radio_2 : SX12XX_Radio_1;
+            tempFreqCorrection = HandleFreqCorr(Radio.GetFrequencyErrorbool(secondRadio), secondRadio);
+            Radio.SetPPMoffsetReg(tempFreqCorrection, secondRadio);
+        }
+    #else
+        HandleFreqCorr(Radio.GetFrequencyErrorbool(Radio.GetProcessingPacketRadio()), Radio.GetProcessingPacketRadio());
+
+        if (Radio.hasSecondRadioGotData)
+        {
+            SX12XX_Radio_Number_t secondRadio = Radio.GetProcessingPacketRadio() == SX12XX_Radio_1 ? SX12XX_Radio_2 : SX12XX_Radio_1;
+            HandleFreqCorr(Radio.GetFrequencyErrorbool(secondRadio), secondRadio);
+        }
+    #endif
     }
 
     // Received a packet, that's the definition of LQ
@@ -1270,7 +1349,7 @@ void MspReceiveComplete()
                         vtxSPIPowerIdx = MspData[10];
                         vtxSPIPitmode = MspData[11];
                     }
-                    devicesTriggerEvent();
+                    devicesTriggerEvent(EVENT_VTX_CHANGE);
                     break;
                 } else if (config.GetSerial1Protocol() == PROTOCOL_SERIAL1_TRAMP || config.GetSerial1Protocol() == PROTOCOL_SERIAL1_SMARTAUDIO) {
                     serial1IO->queueMSPFrameTransmission(MspData);
@@ -1354,6 +1433,10 @@ static void setupSerial()
         hottTlmSerial = true;
         serialBaud = 19200;
     }
+    else if (config.GetSerialProtocol() == PROTOCOL_GPS)
+    {
+        serialBaud = 115200;
+    }
     bool invert = config.GetSerialProtocol() == PROTOCOL_SBUS || config.GetSerialProtocol() == PROTOCOL_INVERTED_CRSF || config.GetSerialProtocol() == PROTOCOL_DJI_RS_PRO;
 
 #if defined(PLATFORM_ESP8266)
@@ -1413,6 +1496,10 @@ static void setupSerial()
     else if (config.GetSerialProtocol() == PROTOCOL_MSP_DISPLAYPORT)
     {
         serialIO = new SerialDisplayport(SERIAL_PROTOCOL_TX, SERIAL_PROTOCOL_RX);
+    }
+    else if (config.GetSerialProtocol() == PROTOCOL_GPS)
+    {
+        serialIO = new SerialGPS(SERIAL_PROTOCOL_TX, SERIAL_PROTOCOL_RX);
     }
     else if (hottTlmSerial)
     {
@@ -1514,6 +1601,10 @@ static void setupSerial1()
             Serial1.begin(115200, SERIAL_8N1, UNDEF_PIN, serial1TXpin, false);
             serial1IO = new SerialDisplayport(SERIAL1_PROTOCOL_TX, SERIAL1_PROTOCOL_RX);
             break;
+        case PROTOCOL_SERIAL1_GPS:        
+            Serial1.begin(115200, SERIAL_8N1, serial1RXpin, serial1TXpin, false);
+            serial1IO = new SerialGPS(SERIAL1_PROTOCOL_TX, SERIAL1_PROTOCOL_RX);
+            break;
     }
 }
 
@@ -1609,11 +1700,11 @@ static void setupRadio()
     if (!init_success)
     {
         DBGLN("Failed to detect RF chipset!!!");
-        connectionState = radioFailed;
+        setConnectionState(radioFailed);
         return;
     }
 
-    DynamicPower_UpdateRx(true);
+    DynamicPower_UpdateRx(true);  // Call before SetRFLinkRate(). The LR1121 Radio lib can now set the correct output power in Config().
 
 #if defined(Regulatory_Domain_EU_CE_2400)
     LBTEnabled = (config.GetPower() > PWR_10mW);
@@ -1692,6 +1783,11 @@ static void EnterBindingMode()
         return;
     }
 
+    // never enter binding mode if binding is supposed to only be administered through the web UI
+    if (config.GetBindStorage() == BINDSTORAGE_ADMINISTERED) {
+        return;
+    }
+
     // Binding uses 50Hz, and InvertIQ
     OtaCrcInitializer = OTA_VERSION_ID;
     InBindingMode = true;
@@ -1708,7 +1804,7 @@ static void EnterBindingMode()
     Radio.RXnb();
 
     DBGLN("Entered binding mode at freq = %d", Radio.currFreq);
-    devicesTriggerEvent();
+    devicesTriggerEvent(EVENT_ENTER_BIND_MODE);
 }
 
 static void ExitBindingMode()
@@ -1741,7 +1837,7 @@ static void ExitBindingMode()
     // if we're in binding mode
     InBindingMode = false;
     DBGLN("Exiting binding mode");
-    devicesTriggerEvent();
+    devicesTriggerEvent(EVENT_EXIT_BIND_MODE);
 }
 
 static void updateBindingMode(unsigned long now)
@@ -1803,7 +1899,7 @@ static void updateBindingMode(unsigned long now)
                 config.Commit(); // prevents CheckConfigChangePending() re-enabling radio
                 Radio.End();
                 // Enter a completely invalid state for a receiver, to prevent wifi or radio enabling
-                connectionState = noCrossfire;
+                setConnectionState(noCrossfire);
                 return;
             }
             // if the InitRate config item was changed by LostConnection
@@ -1949,8 +2045,8 @@ static void CheckConfigChangePending()
     if (config.IsModified() && !InBindingMode && connectionState < NO_CONFIG_SAVE_STATES)
     {
         LostConnection(false);
-        config.Commit();
-        devicesTriggerEvent();
+        uint32_t changes = config.Commit();
+        devicesTriggerEvent(changes);
 #if defined(Regulatory_Domain_EU_CE_2400)
         LBTEnabled = (config.GetPower() > PWR_10mW);
 #endif
@@ -2005,7 +2101,7 @@ void setup()
         devicesRegister(wifi_device, ARRAY_SIZE(wifi_device));
         devicesInit();
 
-        connectionState = hardwareUndefined;
+        setConnectionState(hardwareUndefined);
     }
     else
     {
@@ -2211,6 +2307,6 @@ void reset_into_bootloader(void)
     ESP.rebootIntoUartDownloadMode();
 #elif defined(PLATFORM_ESP32)
     delay(100);
-    connectionState = serialUpdate;
+    setConnectionState(serialUpdate);
 #endif
 }
