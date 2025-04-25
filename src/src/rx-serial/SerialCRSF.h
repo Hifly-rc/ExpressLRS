@@ -18,6 +18,8 @@ public:
     void sendQueuedData(uint32_t maxBytesToSend) override;
 >>>>>>> master
 
+    bool sendImmediateRC() override { return true; }
+
 private:
     uint16_t linkQuality = 0;
     uint16_t rssiDBM = 0;

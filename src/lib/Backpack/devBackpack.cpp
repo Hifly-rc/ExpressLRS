@@ -17,15 +17,11 @@ extern bool headTrackingEnabled;
 bool TxBackpackWiFiReadyToSend = false;
 bool VRxBackpackWiFiReadyToSend = false;
 bool HTEnableFlagReadyToSend = false;
+bool BackpackTelemReadyToSend = false;
 
 bool lastRecordingState = false;
-uint8_t lastLinkMode; // will get set in start() and used in event()
 
-#if defined(GPIO_PIN_BACKPACK_EN)
-
-#ifndef PASSTHROUGH_BAUD
-#define PASSTHROUGH_BAUD BACKPACK_LOGGING_BAUD
-#endif
+#if defined(PLATFORM_ESP32)
 
 #define GPIO_PIN_BOOT0 0
 
@@ -46,10 +42,6 @@ uint8_t lastLinkMode; // will get set in start() and used in event()
     // get ready for passthrough
     if (GPIO_PIN_RCSIGNAL_RX == GPIO_PIN_RCSIGNAL_TX)
     {
-<<<<<<< HEAD
-        // if we have a single S.PORT pin for RX then we assume the standard UART pins for passthrough
-        CRSF::Port.begin(baud, SERIAL_8N1, 3, 1);
-=======
         #if defined(PLATFORM_ESP32_S3)
         // if UART0 is connected to the backpack then use the USB for the uplink
         if (GPIO_PIN_DEBUG_RX == 44 && GPIO_PIN_DEBUG_TX == 43)
@@ -69,7 +61,6 @@ uint8_t lastLinkMode; // will get set in start() and used in event()
         CRSFHandset::Port.setTxBufferSize(1024);
         CRSFHandset::Port.setRxBufferSize(16384);
         #endif
->>>>>>> master
     }
     else
     {
@@ -120,9 +111,6 @@ uint8_t lastLinkMode; // will get set in start() and used in event()
         uplink->write(buf, bytes_read);
     }
 }
-#endif
-
-#if defined(GPIO_PIN_BACKPACK_EN)
 
 static int debouncedRead(int pin) {
     static const uint8_t min_matches = 100;
@@ -151,11 +139,9 @@ static int debouncedRead(int pin) {
     // We don't have a definitive state we could report.
     return -1;
 }
-#endif
 
 void checkBackpackUpdate()
 {
-#if defined(GPIO_PIN_BACKPACK_EN)
     if (GPIO_PIN_BACKPACK_EN != UNDEF_PIN)
     {
         if (debouncedRead(GPIO_PIN_BOOT0) == 0)
@@ -184,7 +170,6 @@ void checkBackpackUpdate()
             resync_pos = 0;
         }
     }
-#endif
 #endif
 }
 
@@ -217,7 +202,9 @@ void BackpackBinding()
     packet.makeCommand();
     packet.function = MSP_ELRS_BIND;
     for (unsigned b=0; b<UID_LEN; ++b)
+    {
         packet.addByte(UID[b]);
+    }
 
     MSP::sendPacket(&packet, TxBackpack); // send to tx-backpack as MSP
 }
@@ -230,7 +217,6 @@ uint8_t GetDvrDelaySeconds(uint8_t index)
 
 static void AuxStateToMSPOut()
 {
-#if defined(USE_TX_BACKPACK)
     if (config.GetDvrAux() == 0)
     {
         // DVR AUX control is off
@@ -260,16 +246,19 @@ static void AuxStateToMSPOut()
     packet.addByte(delay >> 8); // delay byte 2
 
     MSP::sendPacket(&packet, TxBackpack); // send to tx-backpack as MSP
-#endif // USE_TX_BACKPACK
 }
 
-<<<<<<< HEAD
-=======
-void crsfTelemToMSPOut(uint8_t *data)
+void sendCRSFTelemetryToBackpack(uint8_t *data)
 {
-    if (config.GetBackpackTlmEnabled() == 0)
+    if (config.GetBackpackTlmMode() == BACKPACK_TELEM_MODE_OFF)
     {
         // Backpack telem is off
+        return;
+    }
+
+    if (config.GetLinkMode() == TX_MAVLINK_MODE)
+    {
+        // Tx is in MAVLink mode, don't forward CRSF telemetry
         return;
     }
 
@@ -293,10 +282,32 @@ void crsfTelemToMSPOut(uint8_t *data)
     MSP::sendPacket(&packet, TxBackpack); // send to tx-backpack as MSP
 }
 
->>>>>>> master
+void sendMAVLinkTelemetryToBackpack(uint8_t *data)
+{
+    if (config.GetBackpackTlmMode() == BACKPACK_TELEM_MODE_OFF)
+    {
+        // Backpack telem is off
+        return;
+    }
+
+    uint8_t count = data[1];
+    TxBackpack->write(data + CRSF_FRAME_NOT_COUNTED_BYTES, count);
+}
+
+void sendConfigToBackpack()
+{
+    // Send any config values to the tx-backpack, as one key/value pair per MSP msg
+    mspPacket_t packet;
+    packet.reset();
+    packet.makeCommand();
+    packet.function = MSP_ELRS_BACKPACK_CONFIG;
+    packet.addByte(MSP_ELRS_BACKPACK_CONFIG_TLM_MODE); // Backpack tlm mode
+    packet.addByte(config.GetBackpackTlmMode());
+    MSP::sendPacket(&packet, TxBackpack); // send to tx-backpack as MSP
+}
+
 static void initialize()
 {
-#if defined(GPIO_PIN_BACKPACK_EN)
     if (GPIO_PIN_BACKPACK_EN != UNDEF_PIN)
     {
         pinMode(GPIO_PIN_BOOT0, INPUT); // setup so we can detect pinchange for passthrough mode
@@ -308,13 +319,11 @@ static void initialize()
         delay(20);
         // Rely on event() to boot
     }
-#endif
     handset->setRCDataCallback(AuxStateToMSPOut);
 }
 
 static int start()
 {
-    lastLinkMode = config.GetLinkMode();
     if (OPT_USE_TX_BACKPACK)
     {
         return DURATION_IMMEDIATELY;
@@ -362,29 +371,23 @@ static int timeout()
         BackpackHTFlagToMSPOut(headTrackingEnabled);
     }
 
+    if (BackpackTelemReadyToSend && connectionState < MODE_STATES)
+    {
+        BackpackTelemReadyToSend = false;
+        sendConfigToBackpack();
+    }
+
     return BACKPACK_TIMEOUT;
 }
 
 static int event()
 {
-#if defined(GPIO_PIN_BACKPACK_EN)
     if (OPT_USE_TX_BACKPACK && GPIO_PIN_BACKPACK_EN != UNDEF_PIN)
     {
         // EN should be HIGH to be active
-        digitalWrite(GPIO_PIN_BACKPACK_EN, config.GetBackpackDisable() ? LOW : HIGH);
+        digitalWrite(GPIO_PIN_BACKPACK_EN, (config.GetBackpackDisable() || connectionState == bleJoystick || connectionState == wifiUpdate) ? LOW : HIGH);
     }
-#endif
-#if !defined(PLATFORM_STM32)
-  // Update the backpack operating mode when the link mode changes
-    uint8_t newMode = config.GetLinkMode();
-    if (lastLinkMode != newMode)
-    {
-        uint8_t mavlinkOutputBuffer[MAVLINK_MAX_PACKET_LEN];
-        uint16_t len = buildMAVLinkELRSModeChange(newMode, mavlinkOutputBuffer);
-        TxBackpack->write(mavlinkOutputBuffer, len);
-    }
-    lastLinkMode = config.GetLinkMode();
-#endif
+
     return DURATION_IGNORE;
 }
 
@@ -394,3 +397,4 @@ device_t Backpack_device = {
     .event = event,
     .timeout = timeout
 };
+#endif

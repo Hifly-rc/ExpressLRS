@@ -199,23 +199,12 @@ static int timeout(devserial_ctx_t *ctx)
         return NO_SERIALIO_INTERVAL;
     }
 
-    if (connectionState == serialUpdate)
+    // stop callbacks when serial driver wants immediate sends or when doing serial update
+    if ((*(ctx->io))->sendImmediateRC() || connectionState == serialUpdate)
     {
-        return DURATION_NEVER;  // stop callbacks when doing serial update
+        return DURATION_NEVER;
     }
 
-<<<<<<< HEAD
-    uint32_t duration = 10; // 10ms callback (i.e. when no theres no model match)
-    // only send frames if we have a model match
-    if (connectionHasModelMatch)
-    {
-        duration = serialIO->sendRCFrameToFC(frameAvailable, ChannelData);
-    }
-    frameAvailable = false;
-    // still get telemetry and send link stats if theres no model match
-    serialIO->handleUARTout();
-    serialIO->handleUARTin();
-=======
     /***
      * TODO: This contains a problem!!
      * confirmFrameAvailable() is designed to be the thing that determines if RC frames are to be sent out
@@ -238,14 +227,38 @@ static int timeout(devserial_ctx_t *ctx)
     // Verify there is new ChannelData and they should be sent on
     bool sendChannels = confirmFrameAvailable(ctx);
 
-    uint32_t duration = (*(ctx->io))->sendRCFrame(sendChannels, missed, ChannelData);
+    return (*(ctx->io))->sendRCFrame(sendChannels, missed, ChannelData);
+}
 
-    // still get telemetry and send link stats if theres no model match
-    (*(ctx->io))->processSerialInput();
-    (*(ctx->io))->sendQueuedData((*(ctx->io))->getMaxSerialWriteSize());
-    
->>>>>>> master
-    return duration;
+void sendImmediateRC()
+{
+    if (*(serial0.io) != nullptr && (*(serial0.io))->sendImmediateRC() && connectionState != serialUpdate)
+    {
+        bool missed = serial0.frameMissed;
+        serial0.frameMissed = false;
+
+        // Verify there is new ChannelData and they should be sent on
+        bool sendChannels = confirmFrameAvailable(&serial0);
+
+        (*(serial0.io))->sendRCFrame(sendChannels, missed, ChannelData);
+    }
+}
+
+void handleSerialIO()
+{
+    // still get telemetry and send link stats if there's no model match
+    if (*(serial0.io) != nullptr)
+    {
+        (*(serial0.io))->processSerialInput();
+        (*(serial0.io))->sendQueuedData((*(serial0.io))->getMaxSerialWriteSize());
+    }
+#if defined(PLATFORM_ESP32)
+    if (*(serial1.io) != nullptr)
+    {
+        (*(serial1.io))->processSerialInput();
+        (*(serial1.io))->sendQueuedData((*(serial1.io))->getMaxSerialWriteSize());
+    }
+#endif
 }
 
 static int timeout0()

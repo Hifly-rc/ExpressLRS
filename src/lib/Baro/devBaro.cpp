@@ -1,6 +1,7 @@
+
 #include "devBaro.h"
 
-#if defined(HAS_BARO)
+#if defined(TARGET_RX)
 
 #include "CRSF.h"
 #include "logging.h"
@@ -18,11 +19,12 @@ extern Telemetry telemetry;
 static BaroBase *baro;
 static eBaroReadState BaroReadState;
 
+extern bool i2c_enabled;
+
 static bool Baro_Detect()
 {
     // I2C Baros
-#if defined(USE_I2C)
-    if (GPIO_PIN_SCL != UNDEF_PIN && GPIO_PIN_SDA != UNDEF_PIN)
+    if (i2c_enabled)
     {
         if (SPL06::detect())
         {
@@ -30,8 +32,6 @@ static bool Baro_Detect()
             baro = new SPL06();
             return true;
         }
-<<<<<<< HEAD
-=======
         if (BMP280::detect())
         {
             DBGLN("Detected baro: BMP280");
@@ -46,11 +46,7 @@ static bool Baro_Detect()
         //     return true;
         // }
         // DBGLN("No baro detected");
->>>>>>> master
     } // I2C
-#endif
-
-    //DBGLN("No baro detected");
     return false;
 }
 
@@ -113,17 +109,12 @@ static void Baro_PublishPressure(uint32_t pressuredPa)
     crsfBaro.p.verticalspd = htobe16(verticalspd_smoothed);
     //DBGLN("diff=%d smooth=%d dT=%u", altitude_diff_cm, verticalspd_smoothed, dT_ms);
 
-<<<<<<< HEAD
-    CRSF::SetHeaderAndCrc((uint8_t *)&crsfBaro, CRSF_FRAMETYPE_BARO_ALTITUDE, CRSF_FRAME_SIZE(sizeof(crsf_sensor_baro_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
-    telemetry.AppendTelemetryPackage((uint8_t *)&crsfBaro);
-=======
     // if no external vario is connected output internal Vspd on CRSF_FRAMETYPE_BARO_ALTITUDE packet
     if (!telemetry.GetCrsfBaroSensorDetected())
     {
         CRSF::SetHeaderAndCrc((uint8_t *)&crsfBaro, CRSF_FRAMETYPE_BARO_ALTITUDE, CRSF_FRAME_SIZE(sizeof(crsf_sensor_baro_vario_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
         telemetry.AppendTelemetryPackage((uint8_t *)&crsfBaro);
     }
->>>>>>> master
 }
 
 static int start()

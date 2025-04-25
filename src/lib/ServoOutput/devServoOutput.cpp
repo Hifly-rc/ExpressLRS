@@ -1,5 +1,3 @@
-#if defined(GPIO_PIN_PWM_OUTPUTS)
-
 #include "devServoOutput.h"
 #include "CRSF.h"
 #include "config.h"
@@ -14,7 +12,7 @@ static int8_t servoPins[PWM_MAX_CHANNELS];
 static pwm_channel_t pwmChannels[PWM_MAX_CHANNELS];
 static uint16_t pwmChannelValues[PWM_MAX_CHANNELS];
 
-#if (defined(PLATFORM_ESP32))
+#if defined(PLATFORM_ESP32)
 static DShotRMT *dshotInstances[PWM_MAX_CHANNELS] = {nullptr};
 const uint8_t RMT_MAX_CHANNELS = 8;
 #endif
@@ -183,7 +181,7 @@ static void initialize()
         pwmChannelValues[ch] = UINT16_MAX;
         pwmChannels[ch] = -1;
         int8_t pin = GPIO_PIN_PWM_OUTPUTS[ch];
-#if (defined(DEBUG_LOG) || defined(DEBUG_RCVR_LINKSTATS)) && (defined(PLATFORM_ESP8266) || defined(PLATFORM_ESP32))
+#if defined(DEBUG_LOG) || defined(DEBUG_RCVR_LINKSTATS)
         // Disconnect the debug UART pins if DEBUG_LOG
         if (pin == U0RXD_GPIO_NUM || pin == U0TXD_GPIO_NUM)
 >>>>>>> master
@@ -275,5 +273,3 @@ device_t ServoOut_device = {
     .event = event,
     .timeout = timeout,
 };
-
-#endif

@@ -15,13 +15,8 @@
 #define TX_CONFIG_MAGIC     (0b01U << 30)
 #define RX_CONFIG_MAGIC     (0b10U << 30)
 
-#define TX_CONFIG_VERSION   7U
-<<<<<<< HEAD
-#define RX_CONFIG_VERSION   7U
-#define UID_LEN             6
-=======
-#define RX_CONFIG_VERSION   9U
->>>>>>> master
+#define TX_CONFIG_VERSION   8U
+#define RX_CONFIG_VERSION   10U
 
 #if defined(TARGET_TX)
 
@@ -50,7 +45,7 @@ typedef enum {
 } headTrackingEnable_t;
 
 typedef struct {
-    uint32_t    rate:4,
+    uint32_t    rate:5,
                 tlm:4,
                 power:3,
                 switchMode:2,
@@ -60,7 +55,7 @@ typedef struct {
                 txAntenna:2,    // FUTURE: Which TX antenna to use, 0=Auto
                 ptrStartChannel:4,
                 ptrEnableChannel:5,
-                linkMode:3;
+                linkMode:2;
 } model_config_t;
 
 typedef struct {
@@ -78,6 +73,13 @@ typedef union {
     uint32_t raw;
 } tx_button_color_t;
 
+typedef enum {
+    BACKPACK_TELEM_MODE_OFF,
+    BACKPACK_TELEM_MODE_ESPNOW,
+    BACKPACK_TELEM_MODE_WIFI,
+    BACKPACK_TELEM_MODE_BLUETOOTH,
+} telem_mode_t;
+
 typedef struct {
     uint32_t        version;
     uint8_t         vtxBand;    // 0=Off, else band number
@@ -90,7 +92,7 @@ typedef struct {
     uint8_t         motionMode:2,       // bool, but space for 2 more modes
                     dvrStopDelay:3,
                     backpackDisable:1,  // bool, disable backpack via EN pin if available
-                    unused:2;          // FUTURE available
+                    backpackTlmMode:2;  // 0=Off, 1=Fwd tlm via espnow, 2=fwd tlm via wifi 3=(FUTURE) bluetooth
     uint8_t         dvrStartDelay:3,
                     dvrAux:5;
     tx_button_color_t buttonColors[2];  // FUTURE: TX RGB color / mode (sets color of TX, can be a static color or standard)
@@ -127,6 +129,7 @@ public:
     uint8_t  GetDvrStartDelay() const { return m_config.dvrStartDelay; }
     uint8_t  GetDvrStopDelay() const { return m_config.dvrStopDelay; }
     bool     GetBackpackDisable() const { return m_config.backpackDisable; }
+    uint8_t  GetBackpackTlmMode() const { return m_config.backpackTlmMode; }
     tx_button_color_t const *GetButtonActions(uint8_t button) const { return &m_config.buttonColors[button]; }
     model_config_t const &GetModelConfig(uint8_t model) const { return m_config.model_config[model]; }
     uint8_t GetPTRStartChannel() const { return m_model->ptrStartChannel; }
@@ -156,6 +159,7 @@ public:
     void SetDvrStopDelay(uint8_t dvrStopDelay);
     void SetButtonActions(uint8_t button, tx_button_color_t actions[2]);
     void SetBackpackDisable(bool backpackDisable);
+    void SetBackpackTlmMode(uint8_t mode);
     void SetPTRStartChannel(uint8_t ptrStartChannel);
     void SetPTREnableChannel(uint8_t ptrEnableChannel);
 
@@ -166,6 +170,7 @@ private:
 #if !defined(PLATFORM_ESP32)
     void UpgradeEepromV5ToV6();
     void UpgradeEepromV6ToV7();
+    void UpgradeEepromV7ToV8();
 #endif
 
     tx_config_t m_config;
@@ -220,9 +225,9 @@ typedef struct __attribute__((packed)) {
     uint8_t     bindStorage:2,     // rx_config_bindstorage_t
                 power:4,
                 antennaMode:2;      // 0=0, 1=1, 2=Diversity
-    uint8_t     powerOnCounter:3,
+    uint8_t     powerOnCounter:2,
                 forceTlmOff:1,
-                rateInitialIdx:4;   // Rate to start rateCycling at on boot
+                rateInitialIdx:5;   // Rate to start rateCycling at on boot
     uint8_t     modelId;
     uint8_t     serialProtocol:4,
                 failsafeMode:2,
@@ -231,6 +236,8 @@ typedef struct __attribute__((packed)) {
     uint8_t     teamraceChannel:4,
                 teamracePosition:3,
                 teamracePitMode:1;  // FUTURE: Enable pit mode when disabling model
+    uint8_t     targetSysId;
+    uint8_t     sourceSysId;
 } rx_config_t;
 
 class RxConfig
@@ -253,9 +260,7 @@ public:
     uint8_t GetPower() const { return m_config.power; }
     uint8_t GetAntennaMode() const { return m_config.antennaMode; }
     bool     IsModified() const { return m_modified; }
-    #if defined(GPIO_PIN_PWM_OUTPUTS)
     const rx_config_pwm_t *GetPwmChannel(uint8_t ch) const { return &m_config.pwmChannels[ch]; }
-    #endif
     bool GetForceTlmOff() const { return m_config.forceTlmOff; }
     uint8_t GetRateInitialIdx() const { return m_config.rateInitialIdx; }
     eSerialProtocol GetSerialProtocol() const { return (eSerialProtocol)m_config.serialProtocol; }
@@ -265,6 +270,8 @@ public:
     uint8_t GetTeamraceChannel() const { return m_config.teamraceChannel; }
     uint8_t GetTeamracePosition() const { return m_config.teamracePosition; }
     eFailsafeMode GetFailsafeMode() const { return (eFailsafeMode)m_config.failsafeMode; }
+    uint8_t GetTargetSysId()  const { return m_config.targetSysId; }
+    uint8_t GetSourceSysId()  const { return m_config.sourceSysId; }
     rx_config_bindstorage_t GetBindStorage() const { return (rx_config_bindstorage_t)m_config.bindStorage; }
     bool IsOnLoan() const;
 
@@ -276,10 +283,8 @@ public:
     void SetAntennaMode(uint8_t antennaMode);
     void SetDefaults(bool commit);
     void SetStorageProvider(ELRS_EEPROM *eeprom);
-    #if defined(GPIO_PIN_PWM_OUTPUTS)
     void SetPwmChannel(uint8_t ch, uint16_t failsafe, uint8_t inputCh, bool inverted, uint8_t mode, bool narrow);
     void SetPwmChannelRaw(uint8_t ch, uint32_t raw);
-    #endif
     void SetForceTlmOff(bool forceTlmOff);
     void SetRateInitialIdx(uint8_t rateInitialIdx);
     void SetSerialProtocol(eSerialProtocol serialProtocol);
@@ -289,6 +294,8 @@ public:
     void SetTeamraceChannel(uint8_t teamraceChannel);
     void SetTeamracePosition(uint8_t teamracePosition);
     void SetFailsafeMode(eFailsafeMode failsafeMode);
+    void SetTargetSysId(uint8_t sysID);
+    void SetSourceSysId(uint8_t sysID);
     void SetBindStorage(rx_config_bindstorage_t value);
     void ReturnLoan();
 
@@ -298,10 +305,8 @@ private:
     void UpgradeEepromV4();
     void UpgradeEepromV5();
     void UpgradeEepromV6();
-<<<<<<< HEAD
-=======
     void UpgradeEepromV7V8();
->>>>>>> master
+    void UpgradeEepromV9();
 
     rx_config_t m_config;
     ELRS_EEPROM *m_eeprom;

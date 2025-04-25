@@ -10,8 +10,9 @@
 #include "devButton.h"
 #include "handset.h"
 
-#define PITMODE_OFF     0
-#define PITMODE_ON      1
+#define PITMODE_NOT_INITIALISED    -1
+#define PITMODE_OFF                 0
+#define PITMODE_ON                  1
 
 // Delay after disconnect to preserve the VTXSS_CONFIRMED status
 // Needs to be long enough to reconnect, but short enough to
@@ -20,7 +21,7 @@
 
 extern CRSF crsf;
 extern Stream *TxBackpack;
-static uint8_t pitmodeAuxState = 0;
+static int pitmodeAuxState = PITMODE_NOT_INITIALISED;
 static bool sendEepromWrite = true;
 
 static enum VtxSendState_e
@@ -34,6 +35,7 @@ static enum VtxSendState_e
 void VtxTriggerSend()
 {
     VtxSendState = VTXSS_MODIFIED;
+    sendEepromWrite = true;
     devicesTriggerEvent();
 }
 
@@ -49,7 +51,11 @@ void VtxPitmodeSwitchUpdate()
     uint8_t auxNumber = (config.GetVtxPitmode() / 2) + 3;
     uint8_t newPitmodeAuxState = CRSF_to_BIT(ChannelData[auxNumber]) ^ auxInverted;
 
-    if (pitmodeAuxState != newPitmodeAuxState)
+    if (pitmodeAuxState == PITMODE_NOT_INITIALISED)
+    {
+        pitmodeAuxState = newPitmodeAuxState;
+    }
+    else if (pitmodeAuxState != newPitmodeAuxState)
     {
         pitmodeAuxState = newPitmodeAuxState;
         sendEepromWrite = false;
