@@ -77,6 +77,7 @@ volatile uint8_t syncSpamCounter = 0;
 volatile uint8_t syncSpamCounterAfterRateChange = 0;
 uint32_t rfModeLastChangedMS = 0;
 uint32_t SyncPacketLastSent = 0;
+static enum { stbIdle, stbRequested, stbBoosting } syncTelemBoostState = stbIdle;
 ////////////////////////////////////////////////
 
 volatile uint32_t LastTLMpacketRecvMillis = 0;
@@ -92,10 +93,6 @@ uint8_t MSPDataPackage[5];
 #define BindingSpamAmount 25
 static uint8_t BindingSendCount;
 bool RxWiFiReadyToSend = false;
-
-bool headTrackingEnabled = false;
-static uint16_t ptrChannelData[3] = {CRSF_CHANNEL_VALUE_MID, CRSF_CHANNEL_VALUE_MID, CRSF_CHANNEL_VALUE_MID};
-static uint32_t lastPTRValidTimeMs;
 
 static TxTlmRcvPhase_e TelemetryRcvPhase = ttrpTransmitting;
 StubbornReceiver TelemetryReceiver;
@@ -379,10 +376,27 @@ expresslrs_tlm_ratio_e ICACHE_RAM_ATTR UpdateTlmRatioEffective()
   expresslrs_tlm_ratio_e retVal = ExpressLRS_currAirRate_Modparams->TLMinterval;
   bool updateTelemDenom = true;
 
-  // TLM ratio is boosted for one sync cycle when the MspSender goes active
-  if (MspSender.IsActive())
+  // TLM ratio is boosted until there is one complete sync cycle with no BoostRequest
+  if (syncTelemBoostState == stbBoosting)
   {
+    syncTelemBoostState = stbIdle;
+  }
+
+  if (syncTelemBoostState == stbRequested)
+  {
+    syncTelemBoostState = stbBoosting;
+    // default to 1:2 telemetry ratio bump for non-wide modes and
+    // wide mode configured to 1:4
     retVal = TLM_RATIO_1_2;
+
+    if (!OtaIsFullRes && config.GetSwitchMode() == smWideOr8ch)
+    {
+      // avoid crossing the wide switch 7-bit to 6-bit boundary
+      if (ratioConfigured <= TLM_RATIO_1_8 || ratioConfigured == TLM_RATIO_DISARMED)
+      {
+        retVal = TLM_RATIO_1_8;
+      }
+    }
   }
   // If Armed, telemetry is disabled, otherwise use STD
   else if (ratioConfigured == TLM_RATIO_DISARMED)
@@ -560,47 +574,6 @@ void ICACHE_RAM_ATTR HandlePrepareForTLM()
   }
 }
 
-void injectBackpackPanTiltRollData(uint32_t const now)
-{
-#if defined(PLATFORM_ESP32)
-  // Do not override channels if the backpack is NOT communicating or PanTiltRoll is disabled
-  if ((!headTrackingEnabled && config.GetPTREnableChannel() == HT_OFF) || backpackVersion[0] == 0)
-  {
-    return;
-  }
-
-  uint8_t ptrStartChannel = config.GetPTRStartChannel();
-  bool enable = config.GetPTREnableChannel() == HT_ON;
-  if (!enable)
-  {
-    uint8_t chan = CRSF_to_BIT(ChannelData[config.GetPTREnableChannel() / 2 + 3]);
-    if (config.GetPTREnableChannel() % 2 == 0)
-    {
-      enable |= chan;
-    }
-    else
-    {
-      enable |= !chan;
-    }
-  }
-
-  if (enable != headTrackingEnabled)
-  {
-    headTrackingEnabled = enable;
-    HTEnableFlagReadyToSend = true;
-  }
-
-  // If enabled and this packet is less that 1 second old then use it
-  if (enable && now - lastPTRValidTimeMs < 1000)
-  {
-    ChannelData[ptrStartChannel + 4] = ptrChannelData[0];
-    ChannelData[ptrStartChannel + 5] = ptrChannelData[1];
-    ChannelData[ptrStartChannel + 6] = ptrChannelData[2];
-  }
-  // else if not enabled or PTR is old, do not override ChannelData from handset
-#endif
-}
-
 void ICACHE_RAM_ATTR SendRCdataToRF()
 {
   // Do not send a stale channels packet to the RX if one has not been received from the handset
@@ -682,17 +655,16 @@ void ICACHE_RAM_ATTR SendRCdataToRF()
       NextPacketIsMspData = false;
       // counter can be increased even for normal msp messages since it's reset if a real bind message should be sent
       BindingSendCount++;
-      // If the telemetry ratio isn't already 1:2, send a sync packet to boost it
-      // to add bandwidth for the reply
-      if (ExpressLRS_currTlmDenom != 2)
+      // If not in TlmBurst, request a sync packet soon to trigger higher download bandwidth for reply
+      if (syncTelemBoostState == stbIdle)
         syncSpamCounter = 1;
+      syncTelemBoostState = stbRequested;
     }
     else
     {
       // always enable msp after a channel package since the slot is only used if MspSender has data to send
       NextPacketIsMspData = true;
 
-      injectBackpackPanTiltRollData(now);
       OtaPackChannelData(&otaPkt, ChannelData, TelemetryReceiver.GetCurrentConfirm(), ExpressLRS_currTlmDenom);
     }
   }
@@ -1112,7 +1084,7 @@ static void ExitBindingMode()
   InBindingMode = false; // Clear binding mode before SetRFLinkRate() for correct IQ
 
   UARTconnected();
-  
+
   SetRFLinkRate(config.GetRate()); //return to original rate
 
   DBGLN("Exiting binding mode");
@@ -1161,10 +1133,7 @@ void ProcessMSPPacket(uint32_t now, mspPacket_t *packet)
   }
   else if (packet->function == MSP_ELRS_BACKPACK_SET_PTR && packet->payloadSize == 6)
   {
-    ptrChannelData[0] = packet->payload[0] + (packet->payload[1] << 8);
-    ptrChannelData[1] = packet->payload[2] + (packet->payload[3] << 8);
-    ptrChannelData[2] = packet->payload[4] + (packet->payload[5] << 8);
-    lastPTRValidTimeMs = now;
+    processPanTiltRollPacket(now, packet);
   }
   if (packet->function == MSP_ELRS_GET_BACKPACK_VERSION)
   {
@@ -1286,12 +1255,12 @@ static void setupSerial()
 // Setup TxBackpack
 #if defined(PLATFORM_ESP32)
   Stream *serialPort;
-  
-  if(firmwareOptions.is_airport) 
+
+  if(firmwareOptions.is_airport)
   {
     serialPort = new HardwareSerial(1);
     ((HardwareSerial *)serialPort)->begin(firmwareOptions.uart_baud, SERIAL_8N1, U0RXD_GPIO_NUM, U0TXD_GPIO_NUM);
-  }  
+  }
   else if (GPIO_PIN_DEBUG_RX != UNDEF_PIN && GPIO_PIN_DEBUG_TX != UNDEF_PIN)
   {
     serialPort = new HardwareSerial(2);
