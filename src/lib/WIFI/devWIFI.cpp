@@ -4,13 +4,10 @@
 
 #include <AsyncJson.h>
 #include <ArduinoJson.h>
-#if defined(PLATFORM_ESP8266)
-#include <FS.h>
-#else
-#include <SPIFFS.h>
-#endif
+#include <LittleFS.h>
 
 #if defined(PLATFORM_ESP32)
+#include <esp_wifi.h>
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <Update.h>
@@ -27,8 +24,6 @@
 #include <set>
 #include <StreamString.h>
 
-#include "ArduinoJson.h"
-#include "AsyncJson.h"
 #include <ESPAsyncWebServer.h>
 
 #include "common.h"
@@ -54,10 +49,7 @@
 #if defined(TARGET_TX)
 #include "wifiJoystick.h"
 
-extern TxConfig config;
 extern void setButtonColors(uint8_t b1, uint8_t b2);
-#else
-extern RxConfig config;
 #endif
 
 extern unsigned long rebootTime;
@@ -79,8 +71,8 @@ static DNSServer dnsServer;
 static IPAddress ipAddress;
 
 #if defined(TARGET_RX)
-#include "tcpsocket.h"
-TCPSOCKET wifi2tcp;
+#include "TcpMspConnector.h"
+TcpMspConnector wifi2tcp;
 #endif
 
 #if defined(PLATFORM_ESP8266)
@@ -99,6 +91,8 @@ static bool target_complete = false;
 static bool force_update = false;
 static uint32_t totalSize;
 
+static const char VERSION[] = {LATEST_VERSION, 0};
+
 void setWifiUpdateMode()
 {
   // No need to ExitBindingMode(), the radio will be stopped stopped when start the Wifi service.
@@ -108,7 +102,7 @@ void setWifiUpdateMode()
 }
 
 /** Is this an IP? */
-static boolean isIp(String str)
+static boolean isIp(const String& str)
 {
   for (size_t i = 0; i < str.length(); i++)
   {
@@ -122,7 +116,7 @@ static boolean isIp(String str)
 }
 
 /** IP to String? */
-static String toStringIp(IPAddress ip)
+static String toStringIp(const IPAddress& ip)
 {
   String res = "";
   for (int i = 0; i < 3; i++)
@@ -135,8 +129,6 @@ static String toStringIp(IPAddress ip)
 
 static bool captivePortal(AsyncWebServerRequest *request)
 {
-  extern const char *wifi_hostname;
-
   if (!isIp(request->host()) && request->host() != (String(wifi_hostname) + ".local"))
   {
     DBGLN("Request redirected to captive portal");
@@ -146,30 +138,11 @@ static bool captivePortal(AsyncWebServerRequest *request)
   return false;
 }
 
-static struct {
-  const char *url;
-  const char *contentType;
-  const uint8_t* content;
-  const size_t size;
-} files[] = {
-  {"/scan.js", "text/javascript", (uint8_t *)SCAN_JS, sizeof(SCAN_JS)},
-  {"/mui.js", "text/javascript", (uint8_t *)MUI_JS, sizeof(MUI_JS)},
-  {"/elrs.css", "text/css", (uint8_t *)ELRS_CSS, sizeof(ELRS_CSS)},
-  {"/hardware.html", "text/html", (uint8_t *)HARDWARE_HTML, sizeof(HARDWARE_HTML)},
-  {"/hardware.js", "text/javascript", (uint8_t *)HARDWARE_JS, sizeof(HARDWARE_JS)},
-  {"/cw.html", "text/html", (uint8_t *)CW_HTML, sizeof(CW_HTML)},
-  {"/cw.js", "text/javascript", (uint8_t *)CW_JS, sizeof(CW_JS)},
-#if defined(RADIO_LR1121)
-  {"/lr1121.html", "text/html", (uint8_t *)LR1121_HTML, sizeof(LR1121_HTML)},
-  {"/lr1121.js", "text/javascript", (uint8_t *)LR1121_JS, sizeof(LR1121_JS)},
-#endif
-};
-
 static void WebUpdateSendContent(AsyncWebServerRequest *request)
 {
-  for (size_t i=0 ; i<ARRAY_SIZE(files) ; i++) {
-    if (request->url().equals(files[i].url)) {
-      AsyncWebServerResponse *response = request->beginResponse_P(200, files[i].contentType, files[i].content, files[i].size);
+  for (size_t i=0 ; i<WEB_ASSETS_COUNT ; i++) {
+    if (request->url().equals(WEB_ASSETS[i].path)) {
+      AsyncWebServerResponse *response = request->beginResponse(200, WEB_ASSETS[i].content_type, WEB_ASSETS[i].data, WEB_ASSETS[i].size);
       response->addHeader("Content-Encoding", "gzip");
       request->send(response);
       return;
@@ -185,33 +158,31 @@ static void WebUpdateHandleRoot(AsyncWebServerRequest *request)
     return;
   }
   force_update = request->hasArg("force");
-  AsyncWebServerResponse *response;
   if (connectionState == hardwareUndefined)
   {
-    response = request->beginResponse_P(200, "text/html", (uint8_t*)HARDWARE_HTML, sizeof(HARDWARE_HTML));
+    request->redirect("/index.html#hardware");
   }
   else
   {
-    response = request->beginResponse_P(200, "text/html", (uint8_t*)INDEX_HTML, sizeof(INDEX_HTML));
+    request->redirect("/index.html");
   }
-  response->addHeader("Content-Encoding", "gzip");
-  response->addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  response->addHeader("Pragma", "no-cache");
-  response->addHeader("Expires", "-1");
-  request->send(response);
 }
 
 static void putFile(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total)
 {
   static File file;
   static size_t bytes;
-  if (!file || request->url() != file.name()) {
-    file = SPIFFS.open(request->url(), "w");
+  if (!file ||
+    // Request URI starts with a / and LittleFS File::name() does not include it, ESP32 doesn't have File::fullName()
+    strcmp(&request->url().c_str()[1], file.name()) != 0)
+  {
+    file = LittleFS.open(request->url(), "w");
     bytes = 0;
   }
   file.write(data, len);
   bytes += len;
-  if (bytes == total) {
+  if (bytes == total)
+  {
     file.close();
   }
 }
@@ -223,7 +194,7 @@ static void getFile(AsyncWebServerRequest *request)
   } else if (request->url() == "/hardware.json") {
     request->send(200, "application/json", getHardware());
   } else {
-    request->send(SPIFFS, request->url().c_str(), "text/plain", true);
+    request->send(LittleFS, request->url().c_str(), "text/plain", true);
   }
 }
 
@@ -232,17 +203,24 @@ static void HandleReboot(AsyncWebServerRequest *request)
   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", "Kill -9, no more CPU time!");
   response->addHeader("Connection", "close");
   request->send(response);
-  request->client()->close();
   rebootTime = millis() + 100;
 }
 
 static void HandleReset(AsyncWebServerRequest *request)
 {
   if (request->hasArg("hardware")) {
-    SPIFFS.remove("/hardware.json");
+    LittleFS.remove("/hardware.json");
   }
   if (request->hasArg("options")) {
-    SPIFFS.remove("/options.json");
+    LittleFS.remove("/options.json");
+#if defined(TARGET_RX)
+    config.SetModelId(255);
+    config.SetForceTlmOff(false);
+    config.Commit();
+#endif
+  }
+  if (request->hasArg("lr1121")) {
+    LittleFS.remove("/lr1121.txt");
   }
   if (request->hasArg("model") || request->hasArg("config")) {
     config.SetDefaults(true);
@@ -250,7 +228,6 @@ static void HandleReset(AsyncWebServerRequest *request)
   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", "Reset complete, rebooting...");
   response->addHeader("Connection", "close");
   request->send(response);
-  request->client()->close();
   rebootTime = millis() + 100;
 }
 
@@ -261,8 +238,12 @@ static void UpdateSettings(AsyncWebServerRequest *request, JsonVariant &json)
     return;
   }
 
-  File file = SPIFFS.open("/options.json", "w");
+  File file = LittleFS.open("/options.json", "w");
   serializeJson(json, file);
+  file.close();
+  String options;
+  serializeJson(json, options);
+  setOptions(options);
   request->send(200);
 }
 
@@ -288,11 +269,32 @@ static const char *GetConfigUidType(const JsonObject json)
 #endif
 }
 
+static int8_t wifi_GetClientRssi()
+{
+  if (wifiMode == WIFI_STA)
+    return WiFi.RSSI();
+
+#if defined(PLATFORM_ESP32)
+  // If AP mode, only return an RSSI if there is just one client connected
+  // This could take the request's IP address, find it in tcpip_adapter_get_sta_list(), match it by MAC to ap_sta_list,
+  // but there should just be one client
+  wifi_sta_list_t staList;
+  if (esp_wifi_ap_get_sta_list(&staList) == ESP_OK)
+  {
+    if (staList.num == 1)
+      return staList.sta[0].rssi;
+  }
+#endif
+  // ESP8266 doesn't seem to store connected station RSSI :/
+
+  return 0;
+}
+
 static void GetConfiguration(AsyncWebServerRequest *request)
 {
-  bool exportMode = request->hasArg("export");
-  AsyncJsonResponse *response = new AsyncJsonResponse();
-  JsonObject json = response->getRoot();
+  const bool exportMode = request->hasArg("export");
+  auto *response = new AsyncJsonResponse();
+  const auto json = response->getRoot();
 
   if (!exportMode)
   {
@@ -301,7 +303,8 @@ static void GetConfiguration(AsyncWebServerRequest *request)
     json["options"] = options;
   }
 
-  JsonArray uid = json["config"]["uid"].to<JsonArray>();
+  const auto cfg = json["config"].to<JsonObject>();
+  const auto uid = cfg["uid"].to<JsonArray>();
   copyArray(UID, UID_LEN, uid);
 
 #if defined(TARGET_TX)
@@ -313,65 +316,78 @@ static void GetConfiguration(AsyncWebServerRequest *request)
   for (int button=0 ; button<button_count ; button++)
   {
     const tx_button_color_t *buttonColor = config.GetButtonActions(button);
+    const auto btn = cfg["button-actions"][button].to<JsonObject>();
     if (hardware_int(button == 0 ? HARDWARE_button_led_index : HARDWARE_button2_led_index) != -1) {
-      json["config"]["button-actions"][button]["color"] = buttonColor->val.color;
+      btn["color"] = buttonColor->val.color;
     }
     for (int pos=0 ; pos<button_GetActionCnt() ; pos++)
     {
-      json["config"]["button-actions"][button]["action"][pos]["is-long-press"] = buttonColor->val.actions[pos].pressType ? true : false;
-      json["config"]["button-actions"][button]["action"][pos]["count"] = buttonColor->val.actions[pos].count;
-      json["config"]["button-actions"][button]["action"][pos]["action"] = buttonColor->val.actions[pos].action;
+      const auto action = btn["action"][pos].to<JsonObject>();
+      action["is-long-press"] = buttonColor->val.actions[pos].pressType ? true : false;
+      action["count"] = buttonColor->val.actions[pos].count;
+      action["action"] = buttonColor->val.actions[pos].action;
     }
   }
   if (exportMode)
   {
-    json["config"]["fan-mode"] = config.GetFanMode();
-    json["config"]["power-fan-threshold"] = config.GetPowerFanThreshold();
+    cfg["fan-mode"] = config.GetFanMode();
+    cfg["power-fan-threshold"] = config.GetPowerFanThreshold();
+    cfg["motion-mode"] = config.GetMotionMode();
 
-    json["config"]["motion-mode"] = config.GetMotionMode();
+    const auto vtxAdmin = cfg["vtx-admin"].to<JsonObject>();
+    vtxAdmin["band"] = config.GetVtxBand();
+    vtxAdmin["channel"] = config.GetVtxChannel();
+    vtxAdmin["pitmode"] = config.GetVtxPitmode();
+    vtxAdmin["power"] = config.GetVtxPower();
 
-    json["config"]["vtx-admin"]["band"] = config.GetVtxBand();
-    json["config"]["vtx-admin"]["channel"] = config.GetVtxChannel();
-    json["config"]["vtx-admin"]["pitmode"] = config.GetVtxPitmode();
-    json["config"]["vtx-admin"]["power"] = config.GetVtxPower();
-    json["config"]["backpack"]["dvr-start-delay"] = config.GetDvrStartDelay();
-    json["config"]["backpack"]["dvr-stop-delay"] = config.GetDvrStopDelay();
-    json["config"]["backpack"]["dvr-aux-channel"] = config.GetDvrAux();
+    const auto backpack = cfg["backpack"].to<JsonObject>();
+    backpack["disabled"] = config.GetBackpackDisable();
+    backpack["dvr-start-delay"] = config.GetDvrStartDelay();
+    backpack["dvr-stop-delay"] = config.GetDvrStopDelay();
+    backpack["dvr-aux-channel"] = config.GetDvrAux();
+    backpack["telemetry-mode"] = config.GetBackpackTlmMode();
 
     for (int model = 0 ; model < CONFIG_TX_MODEL_CNT ; model++)
     {
       const model_config_t &modelConfig = config.GetModelConfig(model);
       String strModel(model);
-      JsonObject modelJson = json["config"]["model"][strModel].to<JsonObject>();
+      const auto modelJson = cfg["model"][strModel].to<JsonObject>();
       modelJson["packet-rate"] = modelConfig.rate;
       modelJson["telemetry-ratio"] = modelConfig.tlm;
       modelJson["switch-mode"] = modelConfig.switchMode;
-      modelJson["power"]["max-power"] = modelConfig.power;
-      modelJson["power"]["dynamic-power"] = modelConfig.dynamicPower;
-      modelJson["power"]["boost-channel"] = modelConfig.boostChannel;
+      modelJson["link-mode"] = modelConfig.linkMode;
       modelJson["model-match"] = modelConfig.modelMatch;
       modelJson["tx-antenna"] = modelConfig.txAntenna;
+      modelJson["ptr-start-chan"] = modelConfig.ptrStartChannel;
+      modelJson["ptr-enable-chan"] = modelConfig.ptrEnableChannel;
+      const auto power = cfg["power"].to<JsonObject>();
+      power["max-power"] = modelConfig.power;
+      power["dynamic-power"] = modelConfig.dynamicPower;
+      power["boost-channel"] = modelConfig.boostChannel;
     }
   }
 #endif /* TARGET_TX */
 
   if (!exportMode)
   {
-    json["config"]["ssid"] = station_ssid;
-    json["config"]["mode"] = wifiMode == WIFI_STA ? "STA" : "AP";
+    const auto settings = json["settings"].to<JsonObject>();
     #if defined(TARGET_RX)
-    json["config"]["serial-protocol"] = config.GetSerialProtocol();
-#if defined(PLATFORM_ESP32)
-    json["config"]["serial1-protocol"] = config.GetSerial1Protocol();
-#endif
-    json["config"]["sbus-failsafe"] = config.GetFailsafeMode();
-    json["config"]["modelid"] = config.GetModelId();
-    json["config"]["force-tlm"] = config.GetForceTlmOff();
-    json["config"]["vbind"] = config.GetBindStorage();
+    cfg["serial-protocol"] = config.GetSerialProtocol();
+    #if defined(PLATFORM_ESP32)
+    if ((GPIO_PIN_SERIAL1_RX != UNDEF_PIN && GPIO_PIN_SERIAL1_TX != UNDEF_PIN) || GPIO_PIN_PWM_OUTPUTS_COUNT > 0)
+    {
+      cfg["serial1-protocol"] = config.GetSerial1Protocol();
+    }
+    #endif
+    cfg["sbus-failsafe"] = config.GetFailsafeMode();
+    cfg["modelid"] = config.GetModelId();
+    cfg["force-tlm"] = config.GetForceTlmOff();
+    cfg["vbind"] = config.GetBindStorage();
     for (int ch=0; ch<GPIO_PIN_PWM_OUTPUTS_COUNT; ++ch)
     {
-      json["config"]["pwm"][ch]["config"] = config.GetPwmChannel(ch)->raw;
-      json["config"]["pwm"][ch]["pin"] = GPIO_PIN_PWM_OUTPUTS[ch];
+      const auto channel = cfg["pwm"][ch].to<JsonObject>();
+      channel["config"] = config.GetPwmChannel(ch)->raw;
+      channel["pin"] = GPIO_PIN_PWM_OUTPUTS[ch];
       uint8_t features = 0;
       auto pin = GPIO_PIN_PWM_OUTPUTS[ch];
       if (pin == U0TXD_GPIO_NUM) features |= 1;  // SerialTX supported
@@ -386,13 +402,46 @@ static void GetConfiguration(AsyncWebServerRequest *request)
       else if ((GPIO_PIN_SERIAL1_RX == UNDEF_PIN || GPIO_PIN_SERIAL1_TX == UNDEF_PIN) &&
                (!(features & 1) && !(features & 2))) features |= 96; // Both Serial1 RX/TX supported (on any pin if not already featured for Serial 1)
       #endif
-      json["config"]["pwm"][ch]["features"] = features;
+      channel["features"] = features;
+    }
+    if (GPIO_PIN_RCSIGNAL_RX != UNDEF_PIN && GPIO_PIN_RCSIGNAL_TX != UNDEF_PIN)
+    {
+        settings["has_serial_pins"] = true;
     }
     #endif
-    json["config"]["product_name"] = product_name;
-    json["config"]["lua_name"] = device_name;
-    json["config"]["reg_domain"] = FHSSgetRegulatoryDomain();
-    json["config"]["uidtype"] = GetConfigUidType(json);
+    settings["product_name"] = product_name;
+    settings["lua_name"] = device_name;
+    settings["uidtype"] = GetConfigUidType(json);
+    settings["ssid"] = station_ssid;
+    settings["mode"] = wifiMode == WIFI_STA ? "STA" : "AP";
+    settings["wifi_dbm"] = wifi_GetClientRssi();
+    settings["custom_hardware"] = hardware_flag(HARDWARE_customised);
+    settings["target"] = &target_name[4];
+    settings["version"] = VERSION;
+    settings["git-commit"] = commit;
+#if defined(TARGET_TX)
+    settings["module-type"] = "TX";
+#endif
+#if defined(TARGET_RX)
+    settings["module-type"] = "RX";
+#endif
+#if defined(RADIO_SX128X)
+    settings["radio-type"] = "SX128X";
+    settings["has_low_band"] = false;
+    settings["has_high_band"] = true;
+    settings["reg_domain_high"] = FHSSconfig->domain;
+#elif defined(RADIO_SX127X)
+    settings["radio-type"] = "SX127X";
+    settings["has_low_band"] = true;
+    settings["has_high_band"] = false;
+    settings["reg_domain_low"] = FHSSconfig->domain;
+#elif defined(RADIO_LR1121)
+    settings["radio-type"] = "LR1121";
+    settings["has_low_band"] = POWER_OUTPUT_VALUES_COUNT != 0;
+    settings["has_high_band"] = POWER_OUTPUT_VALUES_DUAL_COUNT != 0;
+    settings["reg_domain_low"] = FHSSconfig->domain;
+    settings["reg_domain_high"] = FHSSconfigDualBand->domain;
+#endif
   }
 
   response->setLength();
@@ -402,7 +451,7 @@ static void GetConfiguration(AsyncWebServerRequest *request)
 #if defined(TARGET_TX)
 static void UpdateConfiguration(AsyncWebServerRequest *request, JsonVariant &json)
 {
-  if (json.containsKey("button-actions")) {
+  if (json["button-actions"].is<JsonVariant>()) {
     const JsonArray &array = json["button-actions"].as<JsonArray>();
     for (size_t button=0 ; button<array.size() ; button++)
     {
@@ -423,50 +472,57 @@ static void UpdateConfiguration(AsyncWebServerRequest *request, JsonVariant &jso
 
 static void ImportConfiguration(AsyncWebServerRequest *request, JsonVariant &json)
 {
-  if (json.containsKey("config"))
+  if (json["config"].is<JsonVariant>())
   {
     json = json["config"];
   }
 
-  if (json.containsKey("fan-mode")) config.SetFanMode(json["fan-mode"]);
-  if (json.containsKey("power-fan-threshold")) config.SetPowerFanThreshold(json["power-fan-threshold"]);
-  if (json.containsKey("motion-mode")) config.SetMotionMode(json["motion-mode"]);
+  if (json["fan-mode"].is<JsonVariant>()) config.SetFanMode(json["fan-mode"]);
+  if (json["power-fan-threshold"].is<JsonVariant>()) config.SetPowerFanThreshold(json["power-fan-threshold"]);
+  if (json["motion-mode"].is<JsonVariant>()) config.SetMotionMode(json["motion-mode"]);
 
-  if (json.containsKey("vtx-admin"))
+  if (json["vtx-admin"].is<JsonObject>())
   {
-    if (json["vtx-admin"].containsKey("band")) config.SetVtxBand(json["vtx-admin"]["band"]);
-    if (json["vtx-admin"].containsKey("channel")) config.SetVtxChannel(json["vtx-admin"]["channel"]);
-    if (json["vtx-admin"].containsKey("pitmode")) config.SetVtxPitmode(json["vtx-admin"]["pitmode"]);
-    if (json["vtx-admin"].containsKey("power")) config.SetVtxPower(json["vtx-admin"]["power"]);
+    const auto vtxAdmin = json["vtx-admin"].as<JsonObject>();
+    if (vtxAdmin["band"].is<JsonVariant>()) config.SetVtxBand(vtxAdmin["band"]);
+    if (vtxAdmin["channel"].is<JsonVariant>()) config.SetVtxChannel(vtxAdmin["channel"]);
+    if (vtxAdmin["pitmode"].is<JsonVariant>()) config.SetVtxPitmode(vtxAdmin["pitmode"]);
+    if (vtxAdmin["power"].is<JsonVariant>()) config.SetVtxPower(vtxAdmin["power"]);
   }
 
-  if (json.containsKey("backpack"))
+  if (json["backpack"].is<JsonVariant>())
   {
-    if (json["backpack"].containsKey("dvr-start-delay")) config.SetDvrStartDelay(json["backpack"]["dvr-start-delay"]);
-    if (json["backpack"].containsKey("dvr-stop-delay")) config.SetDvrStopDelay(json["backpack"]["dvr-stop-delay"]);
-    if (json["backpack"].containsKey("dvr-aux-channel")) config.SetDvrAux(json["backpack"]["dvr-aux-channel"]);
+    const auto backpack = json["backpack"].as<JsonObject>();
+    if (backpack["disabled"].is<JsonVariant>()) config.SetBackpackDisable(backpack["disabled"]);
+    if (backpack["dvr-start-delay"].is<JsonVariant>()) config.SetDvrStartDelay(backpack["dvr-start-delay"]);
+    if (backpack["dvr-stop-delay"].is<JsonVariant>()) config.SetDvrStopDelay(backpack["dvr-stop-delay"]);
+    if (backpack["dvr-aux-channel"].is<JsonVariant>()) config.SetDvrAux(backpack["dvr-aux-channel"]);
+    if (backpack["telemetry-mode"].is<JsonVariant>()) config.SetBackpackTlmMode(backpack["telemetry-mode"]);
   }
 
-  if (json.containsKey("model"))
+  if (json["model"].is<JsonVariant>())
   {
     for(JsonPair kv : json["model"].as<JsonObject>())
     {
-      uint8_t model = atoi(kv.key().c_str());
-      JsonObject modelJson = kv.value();
+      const uint8_t model = atoi(kv.key().c_str());
+      const auto modelJson = kv.value().as<JsonObject>();
 
       config.SetModelId(model);
-      if (modelJson.containsKey("packet-rate")) config.SetRate(modelJson["packet-rate"]);
-      if (modelJson.containsKey("telemetry-ratio")) config.SetTlm(modelJson["telemetry-ratio"]);
-      if (modelJson.containsKey("switch-mode")) config.SetSwitchMode(modelJson["switch-mode"]);
-      if (modelJson.containsKey("power"))
+      if (modelJson["packet-rate"].is<JsonVariant>()) config.SetRate(modelJson["packet-rate"]);
+      if (modelJson["telemetry-ratio"].is<JsonVariant>()) config.SetTlm(modelJson["telemetry-ratio"]);
+      if (modelJson["switch-mode"].is<JsonVariant>()) config.SetSwitchMode(modelJson["switch-mode"]);
+      if (modelJson["link-mode"].is<JsonVariant>()) config.SetLinkMode(modelJson["link-mode"]);
+      if (modelJson["model-match"].is<JsonVariant>()) config.SetModelMatch(modelJson["model-match"]);
+      if (modelJson["tx-antenna"].is<JsonVariant>()) config.SetAntennaMode(modelJson["tx-antenna"]);
+      if (modelJson["ptr-start-chan"].is<JsonVariant>()) config.SetPTRStartChannel(modelJson["ptr-start-chan"]);
+      if (modelJson["ptr-enable-chan"].is<JsonVariant>()) config.SetPTREnableChannel(modelJson["ptr-enable-chan"]);
+      if (modelJson["power"].is<JsonVariant>())
       {
-        if (modelJson["power"].containsKey("max-power")) config.SetPower(modelJson["power"]["max-power"]);
-        if (modelJson["power"].containsKey("dynamic-power")) config.SetDynamicPower(modelJson["power"]["dynamic-power"]);
-        if (modelJson["power"].containsKey("boost-channel")) config.SetBoostChannel(modelJson["power"]["boost-channel"]);
+        if (modelJson["power"]["max-power"].is<JsonVariant>()) config.SetPower(modelJson["power"]["max-power"]);
+        if (modelJson["power"]["dynamic-power"].is<JsonVariant>()) config.SetDynamicPower(modelJson["power"]["dynamic-power"]);
+        if (modelJson["power"]["boost-channel"].is<JsonVariant>()) config.SetBoostChannel(modelJson["power"]["boost-channel"]);
       }
-      if (modelJson.containsKey("model-match")) config.SetModelMatch(modelJson["model-match"]);
-      // if (modelJson.containsKey("tx-antenna")) config.SetTxAntenna(modelJson["tx-antenna"]);
-      // have to commmit after each model is updated
+      // have to commit after each model is updated
       config.Commit();
     }
   }
@@ -488,7 +544,7 @@ static void WebUpdateButtonColors(AsyncWebServerRequest *request, JsonVariant &j
 */
 static void JsonUidToConfig(JsonVariant &json)
 {
-  JsonArray juid = json["uid"].as<JsonArray>();
+  const auto juid = json["uid"].as<JsonArray>();
   size_t juidLen = constrain(juid.size(), 0, UID_LEN);
   uint8_t newUid[UID_LEN] = { 0 };
 
@@ -521,7 +577,7 @@ static void UpdateConfiguration(AsyncWebServerRequest *request, JsonVariant &jso
   if (modelid < 0 || modelid > 63) modelid = 255;
   config.SetModelId((uint8_t)modelid);
 
-  long forceTlm = json["force-tlm"] | 0;
+  long forceTlm = json["force-tlm"] | false;
   config.SetForceTlmOff(forceTlm != 0);
 
   config.SetBindStorage((rx_config_bindstorage_t)(json["vbind"] | 0));
@@ -539,39 +595,6 @@ static void UpdateConfiguration(AsyncWebServerRequest *request, JsonVariant &jso
   request->send(200, "text/plain", "Configuration updated");
 }
 #endif
-
-static void WebUpdateGetTarget(AsyncWebServerRequest *request)
-{
-  JsonDocument json;
-  json["target"] = &target_name[4];
-  json["version"] = VERSION;
-  json["product_name"] = product_name;
-  json["lua_name"] = device_name;
-  json["reg_domain"] = FHSSgetRegulatoryDomain();
-  json["git-commit"] = commit;
-#if defined(TARGET_TX)
-  json["module-type"] = "TX";
-#endif
-#if defined(TARGET_RX)
-  json["module-type"] = "RX";
-#endif
-#if defined(RADIO_SX128X)
-  json["radio-type"] = "SX128X";
-  json["has-sub-ghz"] = false;
-#endif
-#if defined(RADIO_SX127X)
-  json["radio-type"] = "SX127X";
-  json["has-sub-ghz"] = true;
-#endif
-#if defined(RADIO_LR1121)
-  json["radio-type"] = "LR1121";
-  json["has-sub-ghz"] = true;
-#endif
-
-  AsyncResponseStream *response = request->beginResponseStream("application/json");
-  serializeJson(json, *response);
-  request->send(response);
-}
 
 static void WebUpdateSendNetworks(AsyncWebServerRequest *request)
 {
@@ -612,7 +635,6 @@ static void sendResponse(AsyncWebServerRequest *request, const String &msg, WiFi
   AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", msg);
   response->addHeader("Connection", "close");
   request->send(response);
-  request->client()->close();
   changeTime = millis();
   changeMode = mode;
 }
@@ -636,6 +658,7 @@ static void WebUpdateSetHome(AsyncWebServerRequest *request)
 {
   String ssid = request->arg("network");
   String password = request->arg("password");
+  String onInterval = request->arg("wifi-on-interval");
 
   DBGLN("Setting network %s", ssid.c_str());
   strcpy(station_ssid, ssid.c_str());
@@ -643,6 +666,7 @@ static void WebUpdateSetHome(AsyncWebServerRequest *request)
   if (request->hasArg("save")) {
     strlcpy(firmwareOptions.home_wifi_ssid, ssid.c_str(), sizeof(firmwareOptions.home_wifi_ssid));
     strlcpy(firmwareOptions.home_wifi_password, password.c_str(), sizeof(firmwareOptions.home_wifi_password));
+    firmwareOptions.wifi_auto_on_interval = (onInterval.isEmpty() ? -1 : onInterval.toInt()) * 1000;
     saveOptions();
   }
   WebUpdateConnect(request);
@@ -651,8 +675,10 @@ static void WebUpdateSetHome(AsyncWebServerRequest *request)
 static void WebUpdateForget(AsyncWebServerRequest *request)
 {
   DBGLN("Forget network");
+  String onInterval = request->arg("wifi-on-interval");
   firmwareOptions.home_wifi_ssid[0] = 0;
   firmwareOptions.home_wifi_password[0] = 0;
+  firmwareOptions.wifi_auto_on_interval = (onInterval.isEmpty() ? -1 : onInterval.toInt()) * 1000;
   saveOptions();
   station_ssid[0] = 0;
   station_password[0] = 0;
@@ -717,7 +743,6 @@ static void WebUploadResponseHandler(AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse(200, "application/json", msg);
     response->addHeader("Connection", "close");
     request->send(response);
-    request->client()->close();
   } else {
     String message = String("{\"status\": \"mismatch\", \"msg\": \"<b>Current target:</b> ") + (const char *)&target_name[4] + ".<br>";
     if (target_found.length() != 0) {
@@ -875,7 +900,6 @@ static void HandleContinuousWave(AsyncWebServerRequest *request) {
     AsyncWebServerResponse *response = request->beginResponse(204);
     response->addHeader("Connection", "close");
     request->send(response);
-    request->client()->close();
 
     Radio.TXdoneCallback = [](){};
     Radio.Begin(FHSSgetMinimumFreq(), FHSSgetMaximumFreq());
@@ -1029,22 +1053,38 @@ static void startMDNS()
 
 static void addCaptivePortalHandlers()
 {
-    // windows 11 captive portal workaround
-    server.on("/connecttest.txt", [](AsyncWebServerRequest *request) { request->redirect("http://logout.net"); });
-    // A 404 stops win 10 keep calling this repeatedly and panicking the esp32
-    server.on("/wpad.dat", [](AsyncWebServerRequest *request) { request->send(404); });
+    // Windows 11 captive portal workaround
+    server.on("/connecttest.txt", [](AsyncWebServerRequest *request) {
+        request->redirect("http://logout.net");
+    });
 
-    server.on("/generate_204", WebUpdateHandleRoot); // Android
-    server.on("/gen_204", WebUpdateHandleRoot); // Android
-    server.on("/library/test/success.html", WebUpdateHandleRoot); // apple call home
-    server.on("/hotspot-detect.html", WebUpdateHandleRoot); // apple call home
-    server.on("/connectivity-check.html", WebUpdateHandleRoot); // ubuntu
-    server.on("/check_network_status.txt", WebUpdateHandleRoot); // ubuntu
-    server.on("/ncsi.txt", WebUpdateHandleRoot); // windows call home
-    server.on("/canonical.html", WebUpdateHandleRoot); // firefox captive portal call home
-    server.on("/fwlink", WebUpdateHandleRoot);
-    server.on("/redirect", WebUpdateHandleRoot); // microsoft redirect
-    server.on("/success.txt", [](AsyncWebServerRequest *request) { request->send(200); }); // firefox captive portal call home
+    // A 404 stops win 10 keep calling this repeatedly and panicking the esp32
+    server.on("/wpad.dat", [](AsyncWebServerRequest *request) {
+        request->send(404);
+    });
+
+    // Firefox captive portal call home
+    server.on("/success.txt", [](AsyncWebServerRequest *request) {
+        request->send(200);
+    });
+
+    // URIs that should redirect to WebUpdateHandleRoot
+    const char* rootUris[] = {
+        "/",                             // Actual root
+        "/generate_204",                 // Android
+        "/gen_204",                      // Android
+        "/library/test/success.html",    // Apple call home
+        "/hotspot-detect.html",          // Apple call home
+        "/connectivity-check.html",      // Ubuntu
+        "/check_network_status.txt",     // Ubuntu
+        "/ncsi.txt",                     // Windows call home
+        "/canonical.html",               // Firefox captive portal call home
+        "/fwlink",                       // Microsoft
+        "/redirect"                      // Microsoft redirect
+    };
+
+    for (const char* uri : rootUris)
+        server.on(uri, WebUpdateHandleRoot);
 }
 
 static void startServices()
@@ -1057,25 +1097,22 @@ static void startServices()
     return;
   }
 
-  server.on("/", WebUpdateHandleRoot);
-  server.on("/elrs.css", WebUpdateSendContent);
-  server.on("/mui.js", WebUpdateSendContent);
-  server.on("/scan.js", WebUpdateSendContent);
+  for (auto asset : WEB_ASSETS)
+  {
+      server.on(asset.path, WebUpdateSendContent);
+  }
   server.on("/networks.json", WebUpdateSendNetworks);
   server.on("/sethome", WebUpdateSetHome);
   server.on("/forget", WebUpdateForget);
   server.on("/connect", WebUpdateConnect);
   server.on("/config", HTTP_GET, GetConfiguration);
   server.on("/access", WebUpdateAccessPoint);
-  server.on("/target", WebUpdateGetTarget);
   server.on("/firmware.bin", WebUpdateGetFirmware);
 
   server.on("/update", HTTP_POST, WebUploadResponseHandler, WebUploadDataHandler);
   server.on("/update", HTTP_OPTIONS, corsPreflightResponse);
   server.on("/forceupdate", WebUploadForceUpdateHandler);
   server.on("/forceupdate", HTTP_OPTIONS, corsPreflightResponse);
-  server.on("/cw.html", WebUpdateSendContent);
-  server.on("/cw.js", WebUpdateSendContent);
   server.on("/cw", HandleContinuousWave);
 
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
@@ -1083,9 +1120,7 @@ static void startServices()
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Headers", "*");
 
-  server.on("/hardware.html", WebUpdateSendContent);
-  server.on("/hardware.js", WebUpdateSendContent);
-  server.on("/hardware.json", getFile).onBody(putFile);
+  server.on("/hardware.json", HTTP_GET | HTTP_POST, getFile, nullptr, putFile);
   server.on("/options.json", HTTP_GET, getFile);
   server.on("/reboot", HandleReboot);
   server.on("/reset", HandleReset);
@@ -1097,12 +1132,12 @@ static void startServices()
   server.addHandler(new AsyncCallbackJsonWebHandler("/options.json", UpdateSettings));
   #if defined(TARGET_TX)
     server.addHandler(new AsyncCallbackJsonWebHandler("/buttons", WebUpdateButtonColors));
-    server.addHandler(new AsyncCallbackJsonWebHandler("/import", ImportConfiguration, 32768U));
+    auto *handler = new AsyncCallbackJsonWebHandler("/import", ImportConfiguration);
+    handler->setMaxContentLength(32768);
+    server.addHandler(handler);
   #endif
 
   #if defined(RADIO_LR1121)
-    server.on("/lr1121.html", WebUpdateSendContent);
-    server.on("/lr1121.js", WebUpdateSendContent);
     server.on("/lr1121", HTTP_OPTIONS, corsPreflightResponse);
     addLR1121Handlers(server);
   #endif
@@ -1231,13 +1266,6 @@ static void HandleWebUpdate()
   }
 }
 
-void HandleMSP2WIFI()
-{
-  #if defined(TARGET_RX)
-  wifi2tcp.handle();
-  #endif
-}
-
 static int start()
 {
   ipAddress.fromString(wifi_ap_address);
@@ -1270,7 +1298,6 @@ static int timeout()
   if (wifiStarted)
   {
     HandleWebUpdate();
-    HandleMSP2WIFI();
 #if defined(PLATFORM_ESP8266)
     // When in STA mode, a small delay reduces power use from 90mA to 30mA when idle
     // In AP mode, it doesn't seem to make a measurable difference, but does not hurt

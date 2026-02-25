@@ -2,11 +2,11 @@
 
 #if defined(TARGET_RX)
 
-#include "common.h"
-#include "device.h"
 #include "SerialIO.h"
-#include "CRSF.h"
+#include "common.h"
 #include "config.h"
+#include "crsf_protocol.h"
+#include "device.h"
 
 #define NO_SERIALIO_INTERVAL 1000
 
@@ -24,7 +24,7 @@ enum teamraceOutputInhibitState_e {
 
 typedef struct devserial_ctx_s {
   SerialIO **io;
-  bool frameAvailable;          
+  bool frameAvailable;
   bool frameMissed ;
   connectionState_e lastConnectionState;
   uint8_t lastTeamracePosition;
@@ -227,21 +227,42 @@ static int timeout(devserial_ctx_t *ctx)
     // Verify there is new ChannelData and they should be sent on
     bool sendChannels = confirmFrameAvailable(ctx);
 
-    return (*(ctx->io))->sendRCFrame(sendChannels, missed, ChannelData);
+    // Copy the current ChannelData to a local buffer as we don't know how many accesses
+    // there will be to each channel slot in the array, and the global buffer may be updated
+    // in-between access to each channel slot.
+    WORD_ALIGNED_ATTR uint32_t localChannelData[CRSF_NUM_CHANNELS];
+    for (unsigned i = 0; i < CRSF_NUM_CHANNELS; i++)
+    {
+        const uint32_t crsfVal = ChannelData[i];
+        localChannelData[i] = (crsfVal == CRSF_CHANNEL_VALUE_UNSET) ? CRSF_CHANNEL_VALUE_EXT_MIN : crsfVal;
+    }
+    return (*(ctx->io))->sendRCFrame(sendChannels, missed, localChannelData);
 }
 
 void sendImmediateRC()
 {
     if (*(serial0.io) != nullptr && (*(serial0.io))->sendImmediateRC() && connectionState != serialUpdate)
     {
-        bool missed = serial0.frameMissed;
+        const bool missed = serial0.frameMissed;
         serial0.frameMissed = false;
 
         // Verify there is new ChannelData and they should be sent on
-        bool sendChannels = confirmFrameAvailable(&serial0);
+        const bool sendChannels = confirmFrameAvailable(&serial0);
 
         (*(serial0.io))->sendRCFrame(sendChannels, missed, ChannelData);
     }
+#if defined(PLATFORM_ESP32)
+    if (*(serial1.io) != nullptr && (*(serial1.io))->sendImmediateRC() && connectionState != serialUpdate)
+    {
+        const bool missed = serial1.frameMissed;
+        serial1.frameMissed = false;
+
+        // Verify the new channel data should be sent on
+        const bool sendChannels = confirmFrameAvailable(&serial1);
+
+        (*(serial1.io))->sendRCFrame(sendChannels, missed, ChannelData);
+    }
+#endif
 }
 
 void handleSerialIO()

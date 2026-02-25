@@ -157,7 +157,7 @@ uint8_t ICACHE_RAM_ATTR enumRatetoIndex(expresslrs_RFrates_e const eRate)
 // Connection state information
 uint8_t UID[UID_LEN] = {0};  // "bind phrase" ID
 bool connectionHasModelMatch = false;
-bool teamraceHasModelMatch = true; // true if isTx or teamrace disabled or (enabled and channel in correct postion)
+bool teamraceHasModelMatch = true; // true if isTx or teamrace disabled or (enabled and channel in correct position)
 bool InBindingMode = false;
 uint8_t ExpressLRS_currTlmDenom = 1;
 connectionState_e connectionState = disconnected;
@@ -166,6 +166,15 @@ expresslrs_rf_pref_params_s *ExpressLRS_currAirRate_RFperfParams = nullptr;
 
 // Current state of channels, CRSF format
 uint32_t ChannelData[CRSF_NUM_CHANNELS];
+
+/***
+ * @brief Reset all ChannelData to CRSF_CHANNEL_VALUE_UNSET
+ */
+void ChannelDataReset()
+{
+    for (auto &ch : ChannelData)
+        ch = CRSF_CHANNEL_VALUE_UNSET;
+}
 
 uint8_t ICACHE_RAM_ATTR TLMratioEnumToValue(expresslrs_tlm_ratio_e const enumval)
 {

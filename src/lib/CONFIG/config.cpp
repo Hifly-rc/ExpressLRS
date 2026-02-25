@@ -9,7 +9,7 @@
 
 #if defined(TARGET_TX)
 
-#define ALL_CHANGED         (EVENT_CONFIG_MODEL_CHANGED | EVENT_CONFIG_VTX_CHANGED | EVENT_CONFIG_MAIN_CHANGED | EVENT_CONFIG_FAN_CHANGED | EVENT_CONFIG_MOTION_CHANGED | EVENT_CONFIG_BUTTON_CHANGED)
+#define ALL_CHANGED         (EVENT_CONFIG_MODEL_CHANGED | EVENT_CONFIG_VTX_CHANGED | EVENT_CONFIG_MAIN_CHANGED | EVENT_CONFIG_FAN_CHANGED | EVENT_CONFIG_MOTION_CHANGED | EVENT_CONFIG_BUTTON_CHANGED | EVENT_CONFIG_VERSION_CHANGED)
 
 // Really awful but safe(?) type punning of model_config_t/v6_model_config_t to and from uint32_t
 template<class T> static const void U32_to_Model(uint32_t const u32, T * const model)
@@ -82,7 +82,7 @@ static uint8_t SwitchesV6toV7(uint8_t switchesV6)
     }
 }
 
-static void ModelV6toV7(v6_model_config_t const * const v6, model_config_t * const v7)
+static void ModelV6toV7(v6_model_config_t const * const v6, v7_model_config_t * const v7)
 {
     v7->rate = RateV6toV7(v6->rate);
     v7->tlm = RatioV6toV7(v6->tlm);
@@ -95,7 +95,29 @@ static void ModelV6toV7(v6_model_config_t const * const v6, model_config_t * con
 
 static void ModelV7toV8(v7_model_config_t const * const v7, model_config_t * const v8)
 {
-    v8->rate = v7->rate;
+    uint8_t newRate = v7->rate;
+#if defined(RADIO_LR1121)
+    switch (newRate)
+    {
+        case 0: newRate = 3; break; // lora 900 200Hz
+        case 1: newRate = 4; break; // lora 900 100Hz Full
+        case 2: newRate = 5; break; // lora 900 100Hz
+        case 3: newRate = 6; break; // lora 900 50Hz
+        case 4: newRate = 12; break; // lora 2.4 500Hz
+        case 5: newRate = 13; break; // lora 2.4 333Hz Full
+        case 6: newRate = 14; break; // lora 2.4 250Hz
+        case 7: newRate = 15; break; // lora 2.4 150Hz
+        case 8: newRate = 16; break; // lora 2.4 100Hz Full
+        case 9: newRate = 17; break; // lora 2.4 50Hz
+        case 10: newRate = 18; break; // lora dual 150Hz
+        case 11: newRate = 19; break; // lora dual 100Hz Full
+        case 12: newRate = 1; break; // lora 900 250Hz
+        case 13: newRate = 2; break; // lora 900 200Hz Full
+        case 14: newRate = 10; break; // fsk 2.4 500Hz dvda
+        case 15: newRate = 0; break; // fsk 900 1000Hz
+    }
+#endif
+    v8->rate = newRate;
     v8->tlm = v7->tlm;
     v8->power = v7->power;
     v8->switchMode = v7->switchMode;
@@ -199,19 +221,20 @@ void TxConfig::Load()
         itoa(i, model+5, 10);
         if (nvs_get_u32(handle, model, &value) == ESP_OK)
         {
+            // Chaining update, last calls nvs_set_u32, all others set `value`
             if (version == 6)
             {
-                // Upgrade v6 to v7 directly writing to nvs instead of calling Commit() over and over
+                // Upgrade v6 to v7
                 v6_model_config_t v6model;
                 U32_to_Model(value, &v6model);
-                model_config_t * const newModel = &m_config.model_config[i];
-                ModelV6toV7(&v6model, newModel);
-                nvs_set_u32(handle, model, Model_to_U32(newModel));
+                v7_model_config_t v7Model;
+                ModelV6toV7(&v6model, &v7Model);
+                value = Model_to_U32(&v7Model);
             }
-            
+
             if (version <= 7)
             {
-                // Upgrade v7 to v8 directly writing to nvs instead of calling Commit() over and over
+                // Upgrade v7 to v8
                 v7_model_config_t v7model;
                 U32_to_Model(value, &v7model);
                 model_config_t * const newModel = &m_config.model_config[i];
@@ -223,11 +246,18 @@ void TxConfig::Load()
             {
                 U32_to_Model(value, &m_config.model_config[i]);
             }
+
+            // validate the currently selected rate is supported by the hardware and choose an appropriate default if not
+            if (!isSupportedRFRate(m_config.model_config[i].rate)) {
+                m_config.model_config[i].rate = enumRatetoIndex(POWER_OUTPUT_VALUES_COUNT == 0 ? RATE_LORA_2G4_250HZ : RATE_LORA_900_200HZ);
+                nvs_set_u32(handle, model, Model_to_U32(&m_config.model_config[i]));
+            }
         }
     } // for each model
 
     if (version != TX_CONFIG_VERSION)
     {
+        m_modified |= EVENT_CONFIG_VERSION_CHANGED;
         Commit();
     }
 }
@@ -294,12 +324,13 @@ void TxConfig::UpgradeEepromV5ToV6()
 void TxConfig::UpgradeEepromV6ToV7()
 {
     v6_tx_config_t v6Config;
+    v7_tx_config_t v7Config = { 0 }; // default the new fields to 0
 
     // Populate the prev version struct from eeprom
     m_eeprom->Get(0, v6Config);
 
     // Manual field copying as some fields have moved
-    #define LAZY(member) m_config.member = v6Config.member
+    #define LAZY(member) v7Config.member = v6Config.member
     LAZY(vtxBand);
     LAZY(vtxChannel);
     LAZY(vtxPower);
@@ -314,22 +345,35 @@ void TxConfig::UpgradeEepromV6ToV7()
 
     for (unsigned i=0; i<CONFIG_TX_MODEL_CNT; i++)
     {
-        ModelV6toV7(&v6Config.model_config[i], &m_config.model_config[i]);
+        ModelV6toV7(&v6Config.model_config[i], &v7Config.model_config[i]);
     }
 
     m_modified = ALL_CHANGED;
 
     // Full Commit now
     m_config.version = 7U | TX_CONFIG_MAGIC;
-    Commit();
+    m_eeprom->Put(0, v7Config);
+    m_eeprom->Commit();
 }
 
 void TxConfig::UpgradeEepromV7ToV8()
 {
     v7_tx_config_t v7Config;
-
-    // Populate the prev version struct from eeprom
     m_eeprom->Get(0, v7Config);
+
+    // Manual field copying as some fields were removed
+    #define LAZY(member) m_config.member = v7Config.member
+    LAZY(vtxBand);
+    LAZY(vtxChannel);
+    LAZY(vtxPower);
+    LAZY(vtxPitmode);
+    LAZY(powerFanThreshold);
+    LAZY(fanMode);
+    LAZY(motionMode);
+    LAZY(dvrAux);
+    LAZY(dvrStartDelay);
+    LAZY(dvrStopDelay);
+    #undef LAZY
 
     for (unsigned i=0; i<CONFIG_TX_MODEL_CNT; i++)
     {
@@ -349,6 +393,7 @@ TxConfig::Commit()
 {
     if (!m_modified)
     {
+        DBGLN("No changes");
         // No changes
         return 0;
     }
@@ -394,7 +439,10 @@ TxConfig::Commit()
         nvs_set_u32(handle, "button1", m_config.buttonColors[0].raw);
         nvs_set_u32(handle, "button2", m_config.buttonColors[1].raw);
     }
-    nvs_set_u32(handle, "tx_version", m_config.version);
+    if (m_modified & EVENT_CONFIG_VERSION_CHANGED)
+    {
+        nvs_set_u32(handle, "tx_version", m_config.version);
+    }
     nvs_commit(handle);
 #else
     // Write the struct to eeprom
@@ -669,11 +717,6 @@ TxConfig::SetDefaults(bool commit)
     m_config.powerFanThreshold = PWR_250mW;
     m_modified = ALL_CHANGED;
 
-    if (commit)
-    {
-        m_modified = ALL_CHANGED;
-    }
-
     // Set defaults for button 1
     tx_button_color_t default_actions1 = {
         .val = {
@@ -758,6 +801,8 @@ TxConfig::SetModelId(uint8_t modelId)
 #include "flash_hal.h"
 #endif
 
+#define CONFCOPY(member) m_config.member = old.member
+
 RxConfig::RxConfig()
 {
 }
@@ -787,14 +832,23 @@ void RxConfig::Load()
         return;
     }
 
-    // Upgrade EEPROM, starting with defaults
+    // Upgrade EEPROM, load defaults then load the old values into it
     SetDefaults(false);
-    UpgradeEepromV4();
-    UpgradeEepromV5();
-    UpgradeEepromV6();
-    UpgradeEepromV7V8();
-    UpgradeEepromV9();
-    m_config.version = RX_CONFIG_VERSION | RX_CONFIG_MAGIC;
+    switch (version)
+    {
+        case 4:
+            UpgradeEepromV4(); break;
+        case 5:
+            UpgradeEepromV5(); break;
+        case 6:
+            UpgradeEepromV6(); break;
+        case 7: // fallthrough
+        case 8:
+            UpgradeEepromV7V8(version); break;
+        case 9: // fallthrough
+        case 10:
+            UpgradeEepromV9V10(version); break;
+    }
     m_modified = EVENT_CONFIG_MODEL_CHANGED; // anything to force write
     Commit();
 }
@@ -819,31 +873,48 @@ void RxConfig::CheckUpdateFlashedUid(bool skipDescrimCheck)
     Commit();
 }
 
+static unsigned toFailsafeV10(unsigned oldFailsafe)
+{
+    // the old failsafe was 988+value, new is 476+value
+    return oldFailsafe + (988 - CHANNEL_VALUE_FS_US_MIN);
+}
+
+/**
+ * @brief Convert rx_config_pwm_t.mode to what should be its current value, taking
+ * into account every time some jerk inserted a value in the middle instead of the end
+ * (eServoOutputMode)
+ */
+static uint8_t toServoOutputModeCurrent(uint8_t verStart, uint8_t mode)
+{
+    // somDShot
+    if (verStart < 8 && mode > somOnOff)
+        mode += 1;
+    // somDShot3D
+    if (verStart < 11 && mode > somDShot)
+        mode += 1;
+    return mode;
+}
+
 // ========================================================
 // V4 Upgrade
 
 static void PwmConfigV4(v4_rx_config_pwm_t const * const v4, rx_config_pwm_t * const current)
 {
-    current->val.failsafe = v4->val.failsafe;
+    current->val.failsafe = toFailsafeV10(v4->val.failsafe);
     current->val.inputChannel = v4->val.inputChannel;
     current->val.inverted = v4->val.inverted;
 }
 
 void RxConfig::UpgradeEepromV4()
 {
-    v4_rx_config_t v4Config;
-    m_eeprom->Get(0, v4Config);
+    v4_rx_config_t old;
+    m_eeprom->Get(0, old);
 
-    if ((v4Config.version & ~CONFIG_MAGIC_MASK) == 4)
-    {
-        UpgradeUid(nullptr, v4Config.isBound ? v4Config.uid : nullptr);
-        m_config.modelId = v4Config.modelId;
-        // OG PWMP had only 8 channels
-        for (unsigned ch=0; ch<8; ++ch)
-        {
-            PwmConfigV4(&v4Config.pwmChannels[ch], &m_config.pwmChannels[ch]);
-        }
-    }
+    UpgradeUid(nullptr, old.isBound ? old.uid : nullptr);
+    CONFCOPY(modelId);
+    // OG PWMP had only 8 channels
+    for (unsigned ch=0; ch<8; ++ch)
+        PwmConfigV4(&old.pwmChannels[ch], &m_config.pwmChannels[ch]);
 }
 
 // ========================================================
@@ -851,7 +922,7 @@ void RxConfig::UpgradeEepromV4()
 
 static void PwmConfigV5(v5_rx_config_pwm_t const * const v5, rx_config_pwm_t * const current)
 {
-    current->val.failsafe = v5->val.failsafe;
+    current->val.failsafe = toFailsafeV10(v5->val.failsafe);
     current->val.inputChannel = v5->val.inputChannel;
     current->val.inverted = v5->val.inverted;
     current->val.narrow = v5->val.narrow;
@@ -864,24 +935,18 @@ static void PwmConfigV5(v5_rx_config_pwm_t const * const v5, rx_config_pwm_t * c
 
 void RxConfig::UpgradeEepromV5()
 {
-    v5_rx_config_t v5Config;
-    m_eeprom->Get(0, v5Config);
+    v5_rx_config_t old;
+    m_eeprom->Get(0, old);
 
-    if ((v5Config.version & ~CONFIG_MAGIC_MASK) == 5)
-    {
-        UpgradeUid(v5Config.onLoan ? v5Config.loanUID : nullptr, v5Config.isBound ? v5Config.uid : nullptr);
-        m_config.vbat.scale = v5Config.vbatScale;
-        m_config.power = v5Config.power;
-        m_config.antennaMode = v5Config.antennaMode;
-        m_config.forceTlmOff = v5Config.forceTlmOff;
-        m_config.rateInitialIdx = v5Config.rateInitialIdx;
-        m_config.modelId = v5Config.modelId;
-
-        for (unsigned ch=0; ch<16; ++ch)
-        {
-            PwmConfigV5(&v5Config.pwmChannels[ch], &m_config.pwmChannels[ch]);
-        }
-    }
+    UpgradeUid(old.onLoan ? old.loanUID : nullptr, old.isBound ? old.uid : nullptr);
+    m_config.vbat.scale = old.vbatScale;
+    CONFCOPY(power);
+    CONFCOPY(antennaMode);
+    CONFCOPY(forceTlmOff);
+    CONFCOPY(rateInitialIdx);
+    CONFCOPY(modelId);
+    for (unsigned ch=0; ch<16; ++ch)
+        PwmConfigV5(&old.pwmChannels[ch], &m_config.pwmChannels[ch]);
 }
 
 // ========================================================
@@ -889,7 +954,7 @@ void RxConfig::UpgradeEepromV5()
 
 static void PwmConfigV6(v6_rx_config_pwm_t const * const v6, rx_config_pwm_t * const current)
 {
-    current->val.failsafe = v6->val.failsafe;
+    current->val.failsafe = toFailsafeV10(v6->val.failsafe);
     current->val.inputChannel = v6->val.inputChannel;
     current->val.inverted = v6->val.inverted;
     current->val.narrow = v6->val.narrow;
@@ -898,75 +963,99 @@ static void PwmConfigV6(v6_rx_config_pwm_t const * const v6, rx_config_pwm_t * c
 
 void RxConfig::UpgradeEepromV6()
 {
-    v6_rx_config_t v6Config;
-    m_eeprom->Get(0, v6Config);
+    v6_rx_config_t old;
+    m_eeprom->Get(0, old);
 
-    if ((v6Config.version & ~CONFIG_MAGIC_MASK) == 6)
-    {
-        UpgradeUid(v6Config.onLoan ? v6Config.loanUID : nullptr, v6Config.isBound ? v6Config.uid : nullptr);
-        m_config.vbat.scale = v6Config.vbatScale;
-        m_config.power = v6Config.power;
-        m_config.antennaMode = v6Config.antennaMode;
-        m_config.forceTlmOff = v6Config.forceTlmOff;
-        m_config.rateInitialIdx = v6Config.rateInitialIdx;
-        m_config.modelId = v6Config.modelId;
-
-        for (unsigned ch=0; ch<16; ++ch)
-        {
-            PwmConfigV6(&v6Config.pwmChannels[ch], &m_config.pwmChannels[ch]);
-        }
-    }
+    UpgradeUid(old.onLoan ? old.loanUID : nullptr, old.isBound ? old.uid : nullptr);
+    m_config.vbat.scale = old.vbatScale;
+    CONFCOPY(power);
+    CONFCOPY(antennaMode);
+    CONFCOPY(forceTlmOff);
+    CONFCOPY(rateInitialIdx);
+    CONFCOPY(modelId);
+    for (unsigned ch=0; ch<16; ++ch)
+        PwmConfigV6(&old.pwmChannels[ch], &m_config.pwmChannels[ch]);
 }
 
 // ========================================================
 // V7/V8 Upgrade
 
-void RxConfig::UpgradeEepromV7V8()
+void RxConfig::UpgradeEepromV7V8(uint8_t ver)
 {
-    v7_rx_config_t v7Config;
-    m_eeprom->Get(0, v7Config);
+    v7_rx_config_t old;
+    m_eeprom->Get(0, old);
 
-    bool isV8 = (v7Config.version & ~CONFIG_MAGIC_MASK) == 8;
-    if (isV8 || (v7Config.version & ~CONFIG_MAGIC_MASK) == 7)
+    UpgradeUid(old.onLoan ? old.loanUID : nullptr, old.isBound ? old.uid : nullptr);
+    m_config.vbat.scale = old.vbatScale;
+    CONFCOPY(power);
+    CONFCOPY(antennaMode);
+    CONFCOPY(forceTlmOff);
+    CONFCOPY(rateInitialIdx);
+    CONFCOPY(modelId);
+    CONFCOPY(serialProtocol);
+    CONFCOPY(failsafeMode);
+
+    for (unsigned ch=0; ch<16; ++ch)
     {
-        UpgradeUid(v7Config.onLoan ? v7Config.loanUID : nullptr, v7Config.isBound ? v7Config.uid : nullptr);
-
-        m_config.vbat.scale = v7Config.vbatScale;
-        m_config.power = v7Config.power;
-        m_config.antennaMode = v7Config.antennaMode;
-        m_config.forceTlmOff = v7Config.forceTlmOff;
-        m_config.rateInitialIdx = v7Config.rateInitialIdx;
-        m_config.modelId = v7Config.modelId;
-        m_config.serialProtocol = v7Config.serialProtocol;
-        m_config.failsafeMode = v7Config.failsafeMode;
-
-        for (unsigned ch=0; ch<16; ++ch)
-        {
-            m_config.pwmChannels[ch].raw = v7Config.pwmChannels[ch].raw;
-            if (!isV8 && m_config.pwmChannels[ch].val.mode > somOnOff)
-                m_config.pwmChannels[ch].val.mode += 1;
-        }
+        m_config.pwmChannels[ch].raw = old.pwmChannels[ch].raw;
+        m_config.pwmChannels[ch].val.failsafe = toFailsafeV10(old.pwmChannels[ch].val.failsafe);
+        m_config.pwmChannels[ch].val.inputChannel = old.pwmChannels[ch].val.inputChannel;
+        m_config.pwmChannels[ch].val.inverted = old.pwmChannels[ch].val.inverted;
+        m_config.pwmChannels[ch].val.mode = toServoOutputModeCurrent(ver, old.pwmChannels[ch].val.mode);
+        m_config.pwmChannels[ch].val.narrow = old.pwmChannels[ch].val.narrow;
     }
 }
 
 // ========================================================
 // V9 Upgrade
 
-void RxConfig::UpgradeEepromV9()
+static void PwmConfigV9(v9_rx_config_pwm_t const * const old, rx_config_pwm_t * const current)
 {
-    v9_rx_config_t v9Config;
-    m_eeprom->Get(0, v9Config);
-
-    if ((v9Config.version & ~CONFIG_MAGIC_MASK) == 9)
-    {
-        m_config.powerOnCounter = v9Config.powerOnCounter;
-        m_config.forceTlmOff = v9Config.forceTlmOff;
-        m_config.rateInitialIdx = v9Config.rateInitialIdx;
-    }
+    current->val.failsafe = toFailsafeV10(old->val.failsafe);
+    current->val.inputChannel = old->val.inputChannel;
+    current->val.inverted = old->val.inverted;
+    current->val.mode = toServoOutputModeCurrent(10, old->val.mode);
+    current->val.narrow = old->val.narrow;
+    current->val.failsafeMode = old->val.failsafeMode;
 }
 
+void RxConfig::UpgradeEepromV9V10(uint8_t ver)
+{
+    v9_rx_config_t old;
+    m_eeprom->Get(0, old);
+
+    UpgradeUid(nullptr, old.uid);
+    // Version 10 is the main structure, version 11 changes the PWM structure
+    if (ver != 10)
+    {
+        CONFCOPY(serial1Protocol);
+        CONFCOPY(vbat.scale);
+        CONFCOPY(vbat.offset);
+        CONFCOPY(bindStorage);
+        CONFCOPY(power);
+        CONFCOPY(antennaMode);
+        CONFCOPY(forceTlmOff);
+        CONFCOPY(rateInitialIdx);
+        CONFCOPY(modelId);
+        CONFCOPY(serialProtocol);
+        CONFCOPY(failsafeMode);
+        CONFCOPY(teamraceChannel);
+        CONFCOPY(teamracePosition);
+        CONFCOPY(teamracePitMode);
+        CONFCOPY(targetSysId);
+        CONFCOPY(sourceSysId);
+    }
+    for (unsigned ch=0; ch<16; ++ch)
+        PwmConfigV9(&old.pwmChannels[ch], &m_config.pwmChannels[ch]);
+}
+
+/**
+ * @brief Upgrade UID and flash_discriminator from old config, using onLoanUid if != null
+ */
 void RxConfig::UpgradeUid(uint8_t *onLoanUid, uint8_t *boundUid)
 {
+    // Always set the flash_discriminator otherwise the UID might change next reboot
+    m_config.flash_discriminator = firmwareOptions.flash_discriminator;
     // Convert to traditional binding
     // On loan? Now you own
     if (onLoanUid)
@@ -977,7 +1066,6 @@ void RxConfig::UpgradeUid(uint8_t *onLoanUid, uint8_t *boundUid)
     else if (firmwareOptions.hasUID)
     {
         memcpy(m_config.uid, firmwareOptions.uid, UID_LEN);
-        m_config.flash_discriminator = firmwareOptions.flash_discriminator;
     }
     else if (boundUid)
     {
@@ -1139,7 +1227,7 @@ RxConfig::SetDefaults(bool commit)
     for (int ch=0; ch<PWM_MAX_CHANNELS; ++ch)
     {
         uint8_t mode = som50Hz;
-        // setup defaults for hardware defined I2C pins that are also IO pins
+        // setup defaults for hardware-defined I2C & Serial pins that are also IO pins
         if (ch < GPIO_PIN_PWM_OUTPUTS_COUNT)
         {
             if (GPIO_PIN_PWM_OUTPUTS[ch] == GPIO_PIN_SCL)
@@ -1150,14 +1238,26 @@ RxConfig::SetDefaults(bool commit)
             {
                 mode = somSDA;
             }
-            else if (GPIO_PIN_PWM_OUTPUTS[ch] == U0RXD_GPIO_NUM || GPIO_PIN_PWM_OUTPUTS[ch] == U0TXD_GPIO_NUM)
+            else if ((GPIO_PIN_RCSIGNAL_RX == U0RXD_GPIO_NUM && GPIO_PIN_PWM_OUTPUTS[ch] == U0RXD_GPIO_NUM) ||
+                     (GPIO_PIN_RCSIGNAL_TX == U0TXD_GPIO_NUM && GPIO_PIN_PWM_OUTPUTS[ch] == U0TXD_GPIO_NUM))
             {
                 mode = somSerial;
             }
+#if defined(PLATFORM_ESP32)
+            else if (GPIO_PIN_PWM_OUTPUTS[ch] == GPIO_PIN_SERIAL1_RX)
+            {
+                mode = somSerial1RX;
+            }
+            else if (GPIO_PIN_PWM_OUTPUTS[ch] == GPIO_PIN_SERIAL1_TX)
+            {
+                mode = somSerial1TX;
+            }
+#endif
         }
-        SetPwmChannel(ch, 512, ch, false, mode, false);
+        const uint16_t failsafe = ch == 2 ? CHANNEL_VALUE_FS_US_ELIMITS_MIN - CHANNEL_VALUE_FS_US_MIN :
+                                            CHANNEL_VALUE_FS_US_MID - CHANNEL_VALUE_FS_US_MIN; // ch2 is throttle, failsafe it to 880
+        SetPwmChannel(ch, failsafe, ch, false, mode, false);
     }
-    SetPwmChannel(2, 0, 2, false, 0, false); // ch2 is throttle, failsafe it to 988
 
     m_config.teamraceChannel = AUX7; // CH11
 
@@ -1180,18 +1280,18 @@ RxConfig::SetStorageProvider(ELRS_EEPROM *eeprom)
 }
 
 void
-RxConfig::SetPwmChannel(uint8_t ch, uint16_t failsafe, uint8_t inputCh, bool inverted, uint8_t mode, bool narrow)
+RxConfig::SetPwmChannel(uint8_t ch, uint16_t failsafe, uint8_t inputCh, bool inverted, uint8_t mode, uint8_t stretched)
 {
     if (ch > PWM_MAX_CHANNELS)
         return;
 
     rx_config_pwm_t *pwm = &m_config.pwmChannels[ch];
-    rx_config_pwm_t newConfig;
+    rx_config_pwm_t newConfig{};
     newConfig.val.failsafe = failsafe;
     newConfig.val.inputChannel = inputCh;
     newConfig.val.inverted = inverted;
     newConfig.val.mode = mode;
-    newConfig.val.narrow = narrow;
+    newConfig.val.stretched = stretched;
     if (pwm->raw == newConfig.raw)
         return;
 

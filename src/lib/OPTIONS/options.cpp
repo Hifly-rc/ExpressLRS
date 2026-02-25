@@ -25,17 +25,12 @@ const char *wifi_ap_password = "expresslrs";
 const char *wifi_ap_address = "10.0.0.1";
 
 #if defined(UNIT_TEST)
-char *device_name = DEVICE_NAME;
-char *product_name = (char *)(target_name+4);
+char device_name[] = DEVICE_NAME;
 firmware_options_t firmwareOptions;
 #else
 #include <ArduinoJson.h>
 #include <StreamString.h>
-#if defined(PLATFORM_ESP8266)
-#include <FS.h>
-#else
-#include <SPIFFS.h>
-#endif
+#include <LittleFS.h>
 #if defined(PLATFORM_ESP32)
 #include <esp_partition.h>
 #include "esp_ota_ops.h"
@@ -56,13 +51,19 @@ String& getOptions()
     return builtinOptions;
 }
 
+void setOptions(String &options)
+{
+    builtinOptions.clear();
+    builtinOptions.concat(options);
+}
+
 void saveOptions(Stream &stream, bool customised)
 {
     JsonDocument doc;
 
     if (firmwareOptions.hasUID)
     {
-        JsonArray uid = doc.createNestedArray("uid");
+        JsonArray uid = doc["uid"].to<JsonArray>();
         copyArray(firmwareOptions.uid, sizeof(firmwareOptions.uid), uid);
     }
     if (firmwareOptions.wifi_auto_on_interval != -1)
@@ -90,11 +91,13 @@ void saveOptions(Stream &stream, bool customised)
     doc["flash-discriminator"] = firmwareOptions.flash_discriminator;
 
     serializeJson(doc, stream);
+    builtinOptions.clear();
+    serializeJson(doc, builtinOptions);
 }
 
 void saveOptions()
 {
-    File options = SPIFFS.open("/options.json", "w");
+    File options = LittleFS.open("/options.json", "w");
     saveOptions(options, true);
     options.close();
 }
@@ -140,7 +143,7 @@ static void options_LoadFromFlashOrFile(EspFlashStream &strmFlash)
     }
 
     // load options.json from the SPIFFS partition
-    File file = SPIFFS.open("/options.json", "r");
+    File file = LittleFS.open("/options.json", "r");
     if (file && !file.isDirectory())
     {
         DeserializationError error = deserializeJson(spiffsDoc, file);
@@ -206,7 +209,7 @@ static void options_LoadFromFlashOrFile(EspFlashStream &strmFlash)
 }
 
 /**
- * @brief: Put a blank options.json into SPIFFS to force all options to the coded defaults in options_LoadFromFlashOrFile()
+ * @brief: Put a blank options.json into LittleFS to force all options to the coded defaults in options_LoadFromFlashOrFile()
 */
 void options_SetTrueDefaults()
 {
@@ -215,7 +218,7 @@ void options_SetTrueDefaults()
     doc["domain"] = firmwareOptions.domain;
     doc["flash-discriminator"] = firmwareOptions.flash_discriminator;
 
-    File options = SPIFFS.open("/options.json", "w");
+    File options = LittleFS.open("/options.json", "w");
     serializeJson(doc, options);
     options.close();
 }
@@ -258,14 +261,14 @@ bool options_init()
 
     uint32_t baseAddr = 0;
 #if defined(PLATFORM_ESP32)
-    SPIFFS.begin(true);
+    LittleFS.begin(true);
     const esp_partition_t *runningPart = esp_ota_get_running_partition();
     if (runningPart)
     {
         baseAddr = runningPart->address;
     }
 #else
-    SPIFFS.begin();
+    LittleFS.begin();
     // ESP8266 sketch baseAddr is always 0
 #endif
 

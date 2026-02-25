@@ -13,12 +13,10 @@
 #else
 #error "Radio configuration is not valid!"
 #endif
-
+#else
+#include <cstdint>
 #endif // UNIT_TEST
 
-// Used to XOR with OtaCrcInitializer and macSeed to reduce compatibility with previous versions.
-// It should be incremented when the OTA packet structure is modified.
-#define OTA_VERSION_ID      4
 #define UID_LEN             6
 
 typedef enum : uint8_t
@@ -112,7 +110,7 @@ typedef enum : uint8_t
     RATE_FSK_2G4_250HZ_DVDA,
     RATE_FSK_2G4_500HZ_DVDA,
     RATE_FSK_2G4_1000HZ,
-    
+
     RATE_LORA_DUAL_100HZ_8CH = 100,
     RATE_LORA_DUAL_150HZ,
 } expresslrs_RFrates_e;
@@ -212,14 +210,13 @@ enum eServoOutputMode : uint8_t
     som10KHzDuty,   // 6:  10kHz duty
     somOnOff,       // 7:  Digital 0/1 mode
     somDShot,       // 8:  DShot300
-    somSerial,      // 9:  primary Serial
-    somSCL,         // 10: I2C clock signal
-    somSDA,         // 11: I2C data line
-    somPwm,         // 12: true PWM mode (NOT SUPPORTED)
-#if defined(PLATFORM_ESP32)
-    somSerial1RX,   // 13: secondary Serial RX
-    somSerial1TX,   // 14: secondary Serial TX
-#endif
+    somDShot3D,     // 9:  DShot300 3D
+    somSerial,      // 10:  primary Serial
+    somSCL,         // 11: I2C clock signal
+    somSDA,         // 12: I2C data line
+    somPwm,         // 13: true PWM mode (NOT SUPPORTED)
+    somSerial1RX,   // 14: secondary Serial RX
+    somSerial1TX,   // 15: secondary Serial TX
 };
 
 enum eServoOutputFailsafeMode : uint8_t
@@ -337,6 +334,10 @@ inline void setConnectionState(connectionState_e newState) {
 }
 #endif
 
+extern bool crsfBatterySensorDetected;
+extern bool crsfBaroSensorDetected;
+
+void ChannelDataReset();
 uint32_t uidMacSeedGet();
 bool isDualRadio();
 void EnterBindingModeSafely(); // defined in rx_main/tx_main

@@ -16,7 +16,7 @@
 #define RX_CONFIG_MAGIC     (0b10U << 30)
 
 #define TX_CONFIG_VERSION   8U
-#define RX_CONFIG_VERSION   10U
+#define RX_CONFIG_VERSION   11U
 
 #if defined(TARGET_TX)
 
@@ -215,13 +215,14 @@ typedef enum : uint8_t {
 
 typedef union {
     struct {
-        uint32_t failsafe:10,    // us output during failsafe +988 (e.g. 512 here would be 1500us)
+        uint32_t failsafe:11,    // us output during failsafe +476 (e.g. 1024 here would be 1500us)
                  inputChannel:4, // 0-based input channel
                  inverted:1,     // invert channel output
                  mode:4,         // Output mode (eServoOutputMode)
+                 stretched:1,    // expand the channel input to 500us - 2500us
                  narrow:1,       // Narrow output mode (half pulse width)
                  failsafeMode:2, // failsafe output mode (eServoOutputFailsafeMode)
-                 unused:10;      // FUTURE: When someone complains "everyone" uses inverted polarity PWM or something :/
+                 unused:8;       // FUTURE: When someone complains "everyone" uses inverted polarity PWM or something :/
     } val;
     uint32_t raw;
 } rx_config_pwm_t;
@@ -298,7 +299,7 @@ public:
     void SetAntennaMode(uint8_t antennaMode);
     void SetDefaults(bool commit);
     void SetStorageProvider(ELRS_EEPROM *eeprom);
-    void SetPwmChannel(uint8_t ch, uint16_t failsafe, uint8_t inputCh, bool inverted, uint8_t mode, bool narrow);
+    void SetPwmChannel(uint8_t ch, uint16_t failsafe, uint8_t inputCh, bool inverted, uint8_t mode, uint8_t stretched);
     void SetPwmChannelRaw(uint8_t ch, uint32_t raw);
     void SetForceTlmOff(bool forceTlmOff);
     void SetRateInitialIdx(uint8_t rateInitialIdx);
@@ -320,8 +321,8 @@ private:
     void UpgradeEepromV4();
     void UpgradeEepromV5();
     void UpgradeEepromV6();
-    void UpgradeEepromV7V8();
-    void UpgradeEepromV9();
+    void UpgradeEepromV7V8(uint8_t ver);
+    void UpgradeEepromV9V10(uint8_t ver);
 
     rx_config_t m_config;
     ELRS_EEPROM *m_eeprom;

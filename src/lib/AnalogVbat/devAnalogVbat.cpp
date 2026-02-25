@@ -1,10 +1,9 @@
 #include "devAnalogVbat.h"
 
-#include <Arduino.h>
-#include "CRSF.h"
-#include "telemetry.h"
-#include "median.h"
+#include "CRSFRouter.h"
 #include "logging.h"
+#include "median.h"
+#include <Arduino.h>
 
 // Sample 5x samples over 500ms (unless SlowUpdate)
 #define VBAT_SMOOTH_CNT         5
@@ -22,9 +21,6 @@ static uint8_t vbatUpdateScale;
 #include "esp_adc_cal.h"
 static esp_adc_cal_characteristics_t *vbatAdcUnitCharacterics;
 #endif
-
-/* Shameful externs */
-extern Telemetry telemetry;
 
 /**
  * @brief: Enable SlowUpdate mode to reduce the frequency Vbat telemetry is sent
@@ -86,13 +82,13 @@ static void reportVbat()
     crsfbatt.p.voltage = htobe16((uint16_t)vbat);
     // No sensors for current, capacity, or remaining available
 
-    CRSF::SetHeaderAndCrc((uint8_t *)&crsfbatt, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAME_SIZE(sizeof(crsf_sensor_battery_t)), CRSF_ADDRESS_CRSF_TRANSMITTER);
-    telemetry.AppendTelemetryPackage((uint8_t *)&crsfbatt);
+    crsfRouter.SetHeaderAndCrc((crsf_header_t *)&crsfbatt, CRSF_FRAMETYPE_BATTERY_SENSOR, CRSF_FRAME_SIZE(sizeof(crsf_sensor_battery_t)));
+    crsfRouter.deliverMessageTo(CRSF_ADDRESS_RADIO_TRANSMITTER, &crsfbatt.h);
 }
 
 static int timeout()
 {
-    if (telemetry.GetCrsfBatterySensorDetected())
+    if (crsfBatterySensorDetected)
     {
         return DURATION_NEVER;
     }

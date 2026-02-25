@@ -130,6 +130,10 @@ def get_git_sha():
 def get_version():
     return string_to_ascii(env.get('GIT_VERSION'))
 
+def cleanDefaultProductForTarget(target_name: str) -> None:
+    from UnifiedConfiguration import clearDefaultProductForTarget
+    clearDefaultProductForTarget(target_name)
+
 json_flags['flash-discriminator'] = randint(1,2**32-1)
 json_flags['wifi-on-interval'] = -1
 
@@ -141,18 +145,13 @@ build_flags.append("-DLATEST_VERSION=" + get_version())
 build_flags.append("-DTARGET_NAME=" + re.sub("_VIA_.*", "", target_name))
 condense_flags()
 
-if '-DRADIO_SX127X=1' in build_flags:
-    # disallow setting 2400 modes for SX127x
-    if fnmatch.filter(build_flags, '*-DRegulatory_Domain_ISM_2400') or \
-            fnmatch.filter(build_flags, '*-DRegulatory_Domain_EU_CE_2400'):
-        print_error('Regulatory_Domain_*_2400 not compatible with RADIO_SX127X')
-
-if '-DRADIO_LR1121=1' in build_flags:
-    # disallow setting EU_CE_2400 for LR1121
-    if fnmatch.filter(build_flags, '*-DRegulatory_Domain_EU_CE_2400'):
-        print_error('Regulatory_Domain_EU_CE_2400 not compatible with RADIO_LR1121')
-
 if '-DRADIO_SX127X=1' in build_flags or '-DRADIO_LR1121=1' in build_flags:
+    # disallow setting 2400s for 900
+    if '-DRADIO_SX127X=1' in build_flags and \
+            (fnmatch.filter(build_flags, '*-DRegulatory_Domain_ISM_2400') or
+             fnmatch.filter(build_flags, '*-DRegulatory_Domain_EU_CE_2400')):
+        print_error('Regulatory_Domain 2400 not compatible with RADIO_SX127X/RADIO_LR1121')
+
     # require a domain be set for 900
     if not fnmatch.filter(build_flags, '*-DRegulatory_Domain*'):
         print_error('Please define a Regulatory_Domain in user_defines.txt')
@@ -181,6 +180,30 @@ if fnmatch.filter(build_flags, '*Regulatory_Domain_ISM_2400*') and \
         target_name != "NATIVE":
     build_flags = [f for f in build_flags if "Regulatory_Domain_ISM_2400" not in f]
 
+# Slim down the ESP8266 targets by not force-including float in scanf/printf
+if env.get('PIOPLATFORM', '') == 'espressif8266':
+    env.Replace(LINKFLAGS=[
+        "-Os",
+        "-nostdlib",
+        "-Wl,--no-check-sections",
+        "-Wl,-static",
+        "-Wl,--gc-sections",
+        "-Wl,-wrap,system_restart_local",
+        "-Wl,-wrap,spi_flash_read",
+        "-u", "app_entry",
+        #"-u", "_printf_float",
+        #"-u", "_scanf_float",
+        "-u", "_DebugExceptionVector",
+        "-u", "_DoubleExceptionVector",
+        "-u", "_KernelExceptionVector",
+        "-u", "_NMIExceptionVector",
+        "-u", "_UserExceptionVector"
+    ])
+
+# Remove the default product if this is a "clean" task
+if env.GetOption("clean"):
+    cleanDefaultProductForTarget(target_name)
+
 env['OPTIONS_JSON'] = json_flags
 env['BUILD_FLAGS'] = build_flags
 sys.stdout.write("\nbuild flags: %s\n\n" % build_flags)
@@ -195,4 +218,3 @@ elif fnmatch.filter(build_flags, '*PLATFORM_ESP8266*'):
         sys.stdout.write("\u001b[32mAUTO_WIFI_ON_INTERVAL = OFF\n")
 
 sys.stdout.flush()
-time.sleep(.5)

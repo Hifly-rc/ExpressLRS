@@ -8,10 +8,12 @@
   #define GETCHAR *fmt
 #endif
 
+Stream *BackpackOrLogStrm;
+
 void debugPrintf(const char* fmt, ...)
 {
   char c;
-  const char *v;
+  const char *v = nullptr;
   char buf[21];
   va_list  vlist;
   va_start(vlist,fmt);
@@ -19,6 +21,7 @@ void debugPrintf(const char* fmt, ...)
   c = GETCHAR;
   while(c) {
     if (c == '%') {
+      if (v) LOGGING_UART.write((uint8_t*)v, fmt - v);
       fmt++;
       c = GETCHAR;
       v = buf;
@@ -49,13 +52,15 @@ void debugPrintf(const char* fmt, ...)
           break;
       }
       LOGGING_UART.write((uint8_t*)v, strlen(v));
+      v = nullptr;
     } else {
-      LOGGING_UART.write(c);
+      if (!v) v = fmt;
     }
     fmt++;
     c = GETCHAR;
   }
   va_end(vlist);
+  if (v) LOGGING_UART.write((uint8_t*)v, fmt - v);
 }
 
 #if defined(DEBUG_INIT)
@@ -63,17 +68,18 @@ void debugPrintf(const char* fmt, ...)
 void debugCreateInitLogger()
 {
   #if defined(PLATFORM_ESP32)
-  TxBackpack = new HardwareSerial(1);
-  ((HardwareSerial *)TxBackpack)->begin(460800, SERIAL_8N1, 3, 1);
+  BackpackOrLogStrm = new HardwareSerial(1);
+  ((HardwareSerial *)BackpackOrLogStrm)->begin(460800, SERIAL_8N1, 3, 1);
   #else
-  TxBackpack = new HardwareSerial(0);
-  ((HardwareSerial *)TxBackpack)->begin(460800, SERIAL_8N1);
+  BackpackOrLogStrm = new HardwareSerial(0);
+  ((HardwareSerial *)BackpackOrLogStrm)->begin(460800, SERIAL_8N1);
   #endif
 }
 
 void debugFreeInitLogger()
 {
-  ((HardwareSerial *)TxBackpack)->end();
-  delete (HardwareSerial *)TxBackpack;
+  ((HardwareSerial *)BackpackOrLogStrm)->end();
+  delete (HardwareSerial *)BackpackOrLogStrm;
+  BackpackOrLogStrm = nullptr;
 }
 #endif

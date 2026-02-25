@@ -47,7 +47,7 @@ config = {
             "pwm":[
                 {
                     # 10fs 4ch 1inv 4mode 1narrow
-                    "config": 0 + 0<<10 + 0<14 + 0<<15 + 0<<19,
+                    "config": 0 + 0<<10 + 0<<14 + 0<<15 + 0<<19,
                     "pin": 0,
                     "features": 12
                 },
@@ -202,6 +202,7 @@ def lr1121_js():
 @route('/lr1121.json')
 def lr1121_json():
     return {
+        "manual": True,
         "radio1": {
             "hardware": 34,
             "type": 3,
