@@ -109,7 +109,6 @@ RXOTAConnector otaConnector;
 bool crsfBatterySensorDetected = false;
 bool crsfBaroSensorDetected = false;
 
-unsigned long rebootTime = 0;
 extern bool webserverPreventAutoStart;
 bool pwmSerialDefined = false;
 uint32_t serialBaud;
@@ -315,16 +314,18 @@ void SetRFLinkRate(uint8_t index, bool bindMode) // Set speed of RF link
 
     hwTimer::updateInterval(interval);
 
-    FHSSusePrimaryFreqBand = !(ModParams->radio_type == RADIO_TYPE_LR1121_LORA_2G4) && !(ModParams->radio_type == RADIO_TYPE_LR1121_GFSK_2G4);
-    FHSSuseDualBand = ModParams->radio_type == RADIO_TYPE_LR1121_LORA_DUAL;
+#if defined(RADIO_LR1121)
+    FHSSusePrimaryFreqBand = !RadioBandMod::isB2G4(ModParams->radio_type);
+    FHSSuseDualBand = RadioBandMod::isBDUAL(ModParams->radio_type);
+#endif
 
     Radio.Config(ModParams->bw, ModParams->sf, ModParams->cr, FHSSgetInitialFreq(),
                  ModParams->PreambleLen, invertIQ, ModParams->PayloadLength
 #if defined(RADIO_SX128X)
-                 , uidMacSeedGet(), OtaCrcInitializer, (ModParams->radio_type == RADIO_TYPE_SX128x_FLRC)
+                 , OtaGetUidSeed(), OtaCrcInitializer, ModParams->radio_type
 #endif
 #if defined(RADIO_LR1121)
-               , ModParams->radio_type == RADIO_TYPE_LR1121_GFSK_900 || ModParams->radio_type == RADIO_TYPE_LR1121_GFSK_2G4, (uint8_t)UID[5], (uint8_t)UID[4]
+                 , ModParams->radio_type, (uint8_t)UID[5], (uint8_t)UID[4]
 #endif
                  );
 
@@ -333,8 +334,7 @@ void SetRFLinkRate(uint8_t index, bool bindMode) // Set speed of RF link
     {
         Radio.Config(ModParams->bw2, ModParams->sf2, ModParams->cr2, FHSSgetInitialGeminiFreq(),
                     ModParams->PreambleLen2, invertIQ, ModParams->PayloadLength,
-                    ModParams->radio_type == RADIO_TYPE_LR1121_GFSK_900 || ModParams->radio_type == RADIO_TYPE_LR1121_GFSK_2G4,
-                    (uint8_t)UID[5], (uint8_t)UID[4], SX12XX_Radio_2);
+                    ModParams->radio_type, (uint8_t)UID[5], (uint8_t)UID[4], SX12XX_Radio_2);
     }
 #endif
 
@@ -1010,6 +1010,17 @@ static bool ICACHE_RAM_ATTR ProcessRfPacket_SYNC(uint32_t const now, OTA_Sync_s 
     if ((otaSync->UID5 & ~MODELMATCH_MASK) != (UID[5] & ~MODELMATCH_MASK))
         return false;
 
+    // Check the any proposed packet rate switch and verify the hardware has a valid config
+    // and hardware frontend for it. Ignore the mode switch if not valid.
+    uint8_t proposedRateIdx;
+    expresslrs_RFrates_e proposedRateEnum = (expresslrs_RFrates_e)otaSync->rfRateEnum;
+    if (!enumRatetoIndex(proposedRateEnum, proposedRateIdx)
+        || !isSupportedRFRate(proposedRateIdx))
+    {
+        DBGLN("Unsupported rate %u", proposedRateEnum);
+        return false;
+    }
+
     LastSyncPacket = now;
 #if defined(DEBUG_RX_SCOREBOARD)
     DBGW('s');
@@ -1038,7 +1049,7 @@ static bool ICACHE_RAM_ATTR ProcessRfPacket_SYNC(uint32_t const now, OTA_Sync_s 
     }
 
     // Will change the packet air rate in loop() if this changes
-    ExpressLRS_nextAirRateIndex = enumRatetoIndex((expresslrs_RFrates_e)otaSync->rfRateEnum);
+    ExpressLRS_nextAirRateIndex = proposedRateIdx;
     updateSwitchModePendingFromOta(otaSync->switchEncMode);
 
     // Update TLM ratio, should never be TLM_RATIO_STD/DISARMED, the TX calculates the correct value for the RX
@@ -1604,11 +1615,11 @@ static void cycleRfMode(unsigned long now)
     {
         RFmodeLastCycled = now;
         LastSyncPacket = now;           // reset this variable
+        // Display the current air rate to the user as an indicator something is happening
         SendLinkStatstoFCForcedSends = 2;
         SetRFLinkRate(scanIndex % RATE_MAX, false); // switch between rates
         LQCalc.reset100();
         LQCalcDVDA.reset100();
-        // Display the current air rate to the user as an indicator something is happening
         scanIndex++;
         Radio.RXnb();
         DBGLN("%u", ExpressLRS_currAirRate_Modparams->interval);
@@ -1650,7 +1661,7 @@ static void EnterBindingMode()
 
     // Start attempting to bind
     // Lock the RF rate and freq while binding
-    SetRFLinkRate(enumRatetoIndex(RATE_BINDING), true);
+    SetRFLinkRate(enumRatetoIndexSafe(RATE_BINDING), true);
 
     // If the Radio Params (including InvertIQ) parameter changed, need to restart RX to take effect
     Radio.RXnb();
@@ -1675,7 +1686,7 @@ static void ExitBindingMode()
     config.Commit();
 
     OtaUpdateCrcInitFromUid();
-    FHSSrandomiseFHSSsequence(uidMacSeedGet());
+    FHSSrandomiseFHSSsequence(OtaGetUidSeed());
 
     webserverPreventAutoStart = true;
 
@@ -1712,11 +1723,11 @@ static void updateBindingMode(unsigned long now)
         BindingRateChangeMs = now;
         if (ExpressLRS_currAirRate_Modparams->enum_rate == RATE_DUALBAND_BINDING)
         {
-            SetRFLinkRate(enumRatetoIndex(RATE_BINDING), true);
+            SetRFLinkRate(enumRatetoIndexSafe(RATE_BINDING), true);
         }
         else
         {
-            SetRFLinkRate(enumRatetoIndex(RATE_DUALBAND_BINDING), true);
+            SetRFLinkRate(enumRatetoIndexSafe(RATE_DUALBAND_BINDING), true);
         }
 
         Radio.RXnb();
@@ -1733,7 +1744,7 @@ static void updateBindingMode(unsigned long now)
     }
 
     // If the eeprom is indicating that we're not bound, enter binding
-    else if (!UID_IS_BOUND(UID) && !InBindingMode)
+    else if (!OtaUidIsBound(UID) && !InBindingMode)
     {
         DBGLN("RX has not been bound, enter binding mode");
         EnterBindingMode();
@@ -2009,7 +2020,7 @@ void setup()
 
         setupBindingFromConfig();
 
-        FHSSrandomiseFHSSsequence(uidMacSeedGet());
+        FHSSrandomiseFHSSsequence(OtaGetUidSeed());
 
         setupRadio();
 
@@ -2052,10 +2063,7 @@ void loop()
     // read and process any data from serial ports, send any queued non-RC data
     handleSerialIO();
 
-    // If the reboot time is set and the current time is past the reboot time then reboot.
-    if (rebootTime != 0 && now > rebootTime) {
-        ESP.restart();
-    }
+    checkRebootTime(now);
 
     CheckConfigChangePending();
     executeDeferredFunction(micros());
@@ -2068,11 +2076,6 @@ void loop()
     if ((connectionState != disconnected) && (ExpressLRS_currAirRate_Modparams->index != ExpressLRS_nextAirRateIndex)) // forced change
     {
         DBGLN("Req air rate change %u->%u", ExpressLRS_currAirRate_Modparams->index, ExpressLRS_nextAirRateIndex);
-        if (!isSupportedRFRate(ExpressLRS_nextAirRateIndex))
-        {
-            DBGLN("Mode %u not supported, ignoring", ExpressLRS_nextAirRateIndex);
-            ExpressLRS_nextAirRateIndex = ExpressLRS_currAirRate_Modparams->index;
-        }
         LostConnection(true);
         LastSyncPacket = now;           // reset this variable to stop rf mode switching and add extra time
         RFmodeLastCycled = now;         // reset this variable to stop rf mode switching and add extra time
